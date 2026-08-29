@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f5">
+  <meta name="description" content="端末内だけで使える、シンプルな個人用知識データベース">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <title>知識データベース</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <button id="homeButton" class="home-btn" type="button" title="トップに戻る" aria-label="トップに戻る">⌂</button>
+        <div class="brand-copy">
+          <div class="eyebrow">MY KNOWLEDGE</div>
+          <div class="app-title-row">
+            <input id="appTitleInput" class="app-title-input" type="text" value="知識データベース" maxlength="60" aria-label="データベース名">
+            <span class="title-edit-mark" aria-hidden="true">✎</span>
+          </div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="randomButton" class="icon-btn" type="button" title="ランダム表示" aria-label="ランダム表示">↻</button>
+        <button id="trashButton" class="icon-btn" type="button" title="ゴミ箱" aria-label="ゴミ箱">⌫</button>
+        <button id="settingsButton" class="icon-btn" type="button" title="設定" aria-label="設定">⋯</button>
+      </div>
+    </header>
+
+    <main id="libraryView" class="view library-view">
+      <section class="search-row" aria-label="検索と並び替え">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="タイトル・本文・タグを検索" autocomplete="off">
+        </label>
+        <select id="sortSelect" aria-label="並び替え">
+          <option value="updated">更新が新しい</option>
+          <option value="created">作成が新しい</option>
+          <option value="title">タイトル順</option>
+          <option value="favorite">お気に入り順</option>
+        </select>
+      </section>
+
+      <section class="quick-row" aria-label="クイック作成">
+        <div class="quick-actions">
+          <button id="quickCaptureButton" class="quick-capture-open" type="button">＋ すぐ追加</button>
+          <button id="clipboardButton" class="ghost-btn" type="button">クリップボードから作成</button>
+        </div>
+        <span id="resultCount" class="muted"></span>
+      </section>
+
+      <nav id="tagFilters" class="tag-strip" aria-label="タグ絞り込み"></nav>
+
+      <section id="noteList" class="note-list" aria-live="polite"></section>
+
+      <div id="emptyState" class="empty-state" hidden>
+        <div class="empty-icon">＋</div>
+        <strong>まだ知識がありません</strong>
+        <span>右下の＋から最初のメモを作れます。</span>
+      </div>
+
+      <button id="addButton" class="fab" type="button" aria-label="新規作成">＋</button>
+    </main>
+
+    <section id="editorView" class="view editor-view" hidden aria-label="知識を編集">
+      <header class="editor-header">
+        <button id="backButton" class="back-btn" type="button" aria-label="一覧に戻る">← 戻る</button>
+        <span id="saveState" class="save-state">保存済み</span>
+        <div class="editor-header-actions">
+          <button id="pinButton" class="icon-btn" type="button" aria-label="ピン留め">📌</button>
+          <button id="favoriteButton" class="icon-btn" type="button" aria-label="お気に入り">☆</button>
+        </div>
+      </header>
+
+      <div class="editor-scroll">
+        <input id="titleInput" class="title-input" type="text" placeholder="タイトル" maxlength="200">
+        <input id="tagsInput" class="tags-input" type="text" placeholder="タグ（カンマ区切り）">
+
+        <div class="format-toolbar" aria-label="文章の書式">
+          <button type="button" data-format="heading">見出し</button>
+          <button type="button" data-format="bold">太字</button>
+          <button type="button" data-format="bullet">・リスト</button>
+          <button type="button" data-format="check">☐ チェック</button>
+        </div>
+
+        <textarea id="contentInput" class="content-input" placeholder="ここに内容を書きます。URLは一覧でも開けます。"></textarea>
+
+        <section class="editor-section">
+          <div class="section-title-row">
+            <h2>画像</h2>
+            <label class="small-btn file-btn">＋ 追加<input id="attachmentInput" type="file" accept="image/*" multiple hidden></label>
+          </div>
+          <div id="attachmentList" class="attachment-list"></div>
+        </section>
+
+        <section class="editor-section">
+          <h2>関連メモ</h2>
+          <select id="relatedSelect" class="wide-select">
+            <option value="">関連メモを追加…</option>
+          </select>
+          <div id="relatedList" class="related-list"></div>
+        </section>
+
+        <section class="editor-section actions-grid">
+          <button id="copyTitleButton" class="secondary-btn" type="button">タイトルをコピー</button>
+          <button id="copyBodyButton" class="secondary-btn" type="button">本文をコピー</button>
+          <button id="copyAllButton" class="secondary-btn" type="button">全部コピー</button>
+          <button id="duplicateButton" class="secondary-btn" type="button">複製</button>
+          <button id="deleteButton" class="danger-btn" type="button">ゴミ箱へ</button>
+        </section>
+      </div>
+    </section>
+
+    <section id="trashView" class="view trash-view" hidden aria-label="ゴミ箱">
+      <header class="sub-header">
+        <button id="trashBackButton" class="icon-btn" type="button" aria-label="一覧に戻る">‹</button>
+        <h2>ゴミ箱</h2>
+        <span></span>
+      </header>
+      <div id="trashList" class="trash-list"></div>
+    </section>
+  </div>
+
+  <dialog id="settingsDialog" class="settings-dialog">
+    <form method="dialog" class="dialog-card">
+      <header class="dialog-header">
+        <div>
+          <div class="eyebrow">SETTINGS</div>
+          <h2>設定・バックアップ</h2>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="閉じる">×</button>
+      </header>
+
+      <label class="field-label" for="themeSelect">表示テーマ</label>
+      <select id="themeSelect" class="wide-select">
+        <option value="system">端末に合わせる</option>
+        <option value="light">ライト</option>
+        <option value="dark">ダーク</option>
+      </select>
+
+      <div class="settings-block">
+        <strong>バックアップ</strong>
+        <p class="muted">全メモ・タグ・画像・設定を1つのJSONファイルに保存します。</p>
+        <div class="backup-actions">
+          <button id="exportButton" class="primary-btn" type="button">書き出す</button>
+          <label class="secondary-btn file-btn">読み込む<input id="importInput" type="file" accept="application/json,.json" hidden></label>
+        </div>
+      </div>
+
+      <div class="privacy-note">データはこの端末のブラウザ内に保存されます。</div>
+    </form>
+  </dialog>
+
+
+  <dialog id="quickCaptureDialog" class="quick-capture-dialog" aria-labelledby="quickCaptureTitle">
+    <div class="quick-capture-sheet">
+      <div class="quick-capture-handle" aria-hidden="true"></div>
+      <header class="quick-capture-header">
+        <div>
+          <div class="eyebrow">QUICK CAPTURE</div>
+          <h2 id="quickCaptureTitle">すぐ追加</h2>
+        </div>
+        <button id="quickCancelButton" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </header>
+
+      <label class="quick-field">
+        <span>タイトル</span>
+        <input id="quickTitleInput" type="text" maxlength="200" placeholder="タイトル（あとでもOK）">
+      </label>
+      <label class="quick-field">
+        <span>タグ</span>
+        <input id="quickTagsInput" type="text" placeholder="生物, 雑学 など">
+      </label>
+      <label class="quick-field quick-field-content">
+        <span>内容</span>
+        <textarea id="quickContentInput" rows="6" placeholder="気になったことをすぐ保存"></textarea>
+      </label>
+
+      <div class="quick-capture-actions">
+        <button id="quickEditButton" class="secondary-btn" type="button">詳細編集</button>
+        <button id="quickSaveButton" class="primary-btn" type="button">保存</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
