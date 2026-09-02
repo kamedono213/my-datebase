@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knowledge-db-v3';
+const CACHE_NAME = 'knowledge-db-v4';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const APP_SHELL = [
   './src/app.js',
   './src/db.js',
   './src/model.js',
+  './src/initial-data.js',
   './src/share.js',
   './manifest.webmanifest',
   './icons/icon-192.png',

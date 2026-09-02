@@ -109,26 +109,29 @@ button { cursor: pointer; }
 .tag-strip { display: flex; gap: 7px; overflow-x: auto; padding: 8px 0 12px; scrollbar-width: none; }
 .tag-strip::-webkit-scrollbar { display: none; }
 .tag-chip {
-  flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
-  border-radius: 999px; padding: 7px 10px; font-size: .82rem;
+  flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--tag-color) 38%, var(--line));
+  background: color-mix(in srgb, var(--tag-color) 10%, var(--surface)); color: var(--tag-color);
+  border-radius: 999px; padding: 7px 10px; font-size: .82rem; font-weight: 720;
 }
-.tag-chip.active { color: var(--accent); background: var(--accent-soft); border-color: transparent; font-weight: 750; }
+.tag-chip.active {
+  background: color-mix(in srgb, var(--tag-color) 22%, var(--surface));
+  border-color: color-mix(in srgb, var(--tag-color) 62%, var(--line));
+  color: var(--tag-color); font-weight: 850;
+}
 
-.note-list { display: grid; gap: 10px; }
+.note-list { display: grid; gap: 8px; }
 .note-card {
-  position: relative; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
-  padding: 15px; box-shadow: 0 1px 0 rgba(0,0,0,.01); transition: transform .12s ease, box-shadow .12s ease;
+  position: relative; border: 1px solid var(--line); border-radius: 13px; background: var(--surface);
+  padding: 13px 14px; box-shadow: 0 1px 0 rgba(0,0,0,.01); transition: transform .12s ease, box-shadow .12s ease;
+  cursor: pointer;
 }
 .note-card:active { transform: scale(.995); }
-.note-card-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
-.note-title { font-size: 1.04rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
-.card-marks { display: flex; gap: 5px; color: var(--muted); font-size: .86rem; }
-.note-preview { margin-top: 8px; color: var(--muted); line-height: 1.55; font-size: .92rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-.note-preview a { color: var(--accent); }
-.note-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.card-tag { padding: 4px 7px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: .72rem; }
-.note-date { flex: 0 0 auto; font-size: .72rem; color: var(--muted); }
+.note-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tab-dot {
+  width: 11px; height: 11px; flex: 0 0 11px; border-radius: 999px; background: var(--tag-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tag-color) 14%, transparent);
+}
+.note-title { font-size: 1.02rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; }
 
 .fab {
   position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 12;

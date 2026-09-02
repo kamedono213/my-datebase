@@ -14,6 +14,33 @@ export function normalizeTags(tags = []) {
   return output;
 }
 
+
+export function buildTagColorMap(tags = []) {
+  const unique = normalizeTags(tags);
+  return Object.fromEntries(unique.map((tag, index) => {
+    const hue = (18 + index * 137.508) % 360;
+    return [tag, `hsl(${hue.toFixed(1)} 68% 46%)`];
+  }));
+}
+
+function firstTag(note) {
+  return normalizeTags(note?.tags ?? [])[0] || '';
+}
+
+function compareByTagOrder(a, b, tagOrder = []) {
+  const ranks = new Map(normalizeTags(tagOrder).map((tag, index) => [tag.toLocaleLowerCase(), index]));
+  const aTag = firstTag(a);
+  const bTag = firstTag(b);
+  const aRank = aTag ? (ranks.get(aTag.toLocaleLowerCase()) ?? Number.MAX_SAFE_INTEGER - 1) : Number.MAX_SAFE_INTEGER;
+  const bRank = bTag ? (ranks.get(bTag.toLocaleLowerCase()) ?? Number.MAX_SAFE_INTEGER - 1) : Number.MAX_SAFE_INTEGER;
+  if (aRank !== bRank) return aRank - bRank;
+  if (aRank === Number.MAX_SAFE_INTEGER - 1 && aTag !== bTag) {
+    const byUnknownTag = aTag.localeCompare(bTag, 'ja', { sensitivity: 'base' });
+    if (byUnknownTag) return byUnknownTag;
+  }
+  return a.title.localeCompare(b.title, 'ja', { sensitivity: 'base' });
+}
+
 export function createNote(input = {}, now = Date.now()) {
   return {
     id: input.id || makeId(now),
@@ -54,6 +81,7 @@ export function filterAndSortNotes(notes, options = {}) {
     query = '',
     tags = [],
     sort = 'updated',
+    tagOrder = [],
     includeDeleted = false,
     onlyDeleted = false,
   } = options;
@@ -74,6 +102,7 @@ export function filterAndSortNotes(notes, options = {}) {
     .sort((a, b) => {
       const pin = Number(b.pinned) - Number(a.pinned);
       if (pin) return pin;
+      if (sort === 'tag') return compareByTagOrder(a, b, tagOrder);
       return compareBase(a, b, sort);
     });
 }

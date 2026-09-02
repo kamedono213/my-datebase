@@ -1,4 +1,5 @@
-import { createNote, filterAndSortNotes, normalizeTags } from './model.js';
+import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
+import { INITIAL_NOTES } from './initial-data.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
@@ -8,6 +9,7 @@ import {
   setSetting,
   exportData,
   importData,
+  seedInitialDataOnce,
 } from './db.js';
 
 const $ = (id) => document.getElementById(id);
@@ -126,12 +128,13 @@ function collectAllTags() {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'));
 }
 
-function renderTagFilters() {
+function renderTagFilters(tagEntries, colorMap) {
   els.tagFilters.replaceChildren();
-  for (const [tag, count] of collectAllTags()) {
+  for (const [tag, count] of tagEntries) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `tag-chip${state.selectedTags.has(tag) ? ' active' : ''}`;
+    button.style.setProperty('--tag-color', colorMap[tag]);
     button.textContent = `${tag} ${count}`;
     button.addEventListener('click', () => {
       if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
@@ -143,11 +146,16 @@ function renderTagFilters() {
 }
 
 function renderLibrary() {
-  renderTagFilters();
+  const tagEntries = collectAllTags();
+  const tagOrder = tagEntries.map(([tag]) => tag);
+  const colorMap = buildTagColorMap(tagOrder);
+  renderTagFilters(tagEntries, colorMap);
+
   const notes = filterAndSortNotes(state.notes, {
     query: state.query,
     tags: [...state.selectedTags],
     sort: state.sort,
+    tagOrder,
   });
 
   els.noteList.replaceChildren();
@@ -157,7 +165,7 @@ function renderLibrary() {
   if (notes.length === 0 && (state.query || state.selectedTags.size)) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.innerHTML = '<strong>該当する知識がありません</strong><span>検索語やタグを変えてみてください。</span>';
+    empty.innerHTML = '<strong>該当する知識がありません</strong><span>検索語やタブを変えてみてください。</span>';
     els.noteList.append(empty);
     return;
   }
@@ -171,37 +179,23 @@ function renderLibrary() {
       if (event.key === 'Enter' || event.key === ' ') openEditor(note.id);
     });
 
-    const head = document.createElement('div');
-    head.className = 'note-card-head';
+    const row = document.createElement('div');
+    row.className = 'note-title-row';
+    const primaryTag = note.tags?.[0];
+    if (primaryTag) {
+      const dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      dot.style.setProperty('--tag-color', colorMap[primaryTag] || 'var(--muted)');
+      dot.setAttribute('aria-label', `タブ: ${primaryTag}`);
+      dot.title = primaryTag;
+      row.append(dot);
+    }
+
     const title = document.createElement('div');
     title.className = 'note-title';
     title.textContent = note.title.trim() || '無題';
-    const marks = document.createElement('div');
-    marks.className = 'card-marks';
-    marks.textContent = `${note.pinned ? '📌' : ''}${note.favorite ? '★' : ''}`;
-    head.append(title, marks);
-
-    const preview = document.createElement('div');
-    preview.className = 'note-preview';
-    const excerpt = note.content.trim().slice(0, 180) || '本文なし';
-    textWithLinks(preview, excerpt);
-
-    const meta = document.createElement('div');
-    meta.className = 'note-meta';
-    const tags = document.createElement('div');
-    tags.className = 'card-tags';
-    for (const tag of note.tags.slice(0, 4)) {
-      const chip = document.createElement('span');
-      chip.className = 'card-tag';
-      chip.textContent = tag;
-      tags.append(chip);
-    }
-    const date = document.createElement('span');
-    date.className = 'note-date';
-    date.textContent = formatDate(note.updatedAt);
-    meta.append(tags, date);
-
-    card.append(head, preview, meta);
+    row.append(title);
+    card.append(row);
     els.noteList.append(card);
   }
 }

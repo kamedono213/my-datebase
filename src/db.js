@@ -111,3 +111,21 @@ export async function importData(data) {
   for (const [key, value] of Object.entries(data.settings)) settingsStore.put({ key, value });
   await transactionDone(tx);
 }
+
+export async function seedInitialDataOnce(notes = [], seedId = 'initial-data-v1') {
+  const markerKey = `seed:${seedId}`;
+  if (await getSetting(markerKey, false)) return 0;
+
+  const existing = await listNotes();
+  const existingIds = new Set(existing.map((note) => note.id));
+  const missing = notes.filter((note) => note?.id && !existingIds.has(note.id));
+
+  const db = await openDb();
+  const tx = db.transaction([NOTES_STORE, SETTINGS_STORE], 'readwrite');
+  const notesStore = tx.objectStore(NOTES_STORE);
+  const settingsStore = tx.objectStore(SETTINGS_STORE);
+  for (const note of missing) notesStore.put(createNote(note, note.createdAt));
+  settingsStore.put({ key: markerKey, value: true });
+  await transactionDone(tx);
+  return missing.length;
+}
