@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knowledge-db-v4';
+const CACHE_NAME = 'knowledge-db-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,6 +8,9 @@ const APP_SHELL = [
   './src/model.js',
   './src/initial-data.js',
   './src/share.js',
+  './src/cloud.js',
+  './src/cloud-sync.js',
+  './src/firebase-config.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
