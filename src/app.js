@@ -3,14 +3,19 @@ import { INITIAL_NOTES } from './initial-data.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
-  putNote,
-  deleteNotePermanently,
   getSetting,
   setSetting,
   exportData,
   importData,
   seedInitialDataOnce,
 } from './db.js';
+import {
+  putNote,
+  deleteNotePermanently,
+  initCloudSync,
+  signIn,
+  signOutCloud,
+} from './cloud-sync.js';
 
 const $ = (id) => document.getElementById(id);
 const DEFAULT_APP_TITLE = '知識データベース';
@@ -63,6 +68,12 @@ const els = {
   exportButton: $('exportButton'),
   importInput: $('importInput'),
   toast: $('toast'),
+  authStatusText: $('authStatusText'),
+  signInButton: $('signInButton'),
+  accountInfo: $('accountInfo'),
+  accountEmail: $('accountEmail'),
+  syncStatusText: $('syncStatusText'),
+  signOutButton: $('signOutButton'),
 };
 
 const state = {
@@ -584,6 +595,34 @@ function downloadJson(data) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const SYNC_STATUS_LABELS = {
+  'signed-out': '',
+  syncing: '同期中…',
+  synced: '同期済み',
+  offline: 'オフライン（復帰時に同期します）',
+  error: '同期エラー（このままローカルには保存されています）',
+};
+
+function updateAuthUI(user) {
+  const signedIn = Boolean(user);
+  els.signInButton.hidden = signedIn;
+  els.accountInfo.hidden = !signedIn;
+  els.authStatusText.hidden = signedIn;
+  if (signedIn) {
+    els.accountEmail.textContent = user.email || user.displayName || 'ログイン済み';
+  }
+}
+
+function updateSyncStatusUI(status) {
+  els.syncStatusText.textContent = SYNC_STATUS_LABELS[status] ?? '';
+}
+
+async function refreshNotesFromCloud() {
+  state.notes = await listNotes();
+  renderLibrary();
+  if (!els.trashView.hidden) renderTrash();
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   els.themeSelect.value = theme;
@@ -724,6 +763,19 @@ function wireEvents() {
     if (file) handleImport(file);
   });
 
+  els.signInButton.addEventListener('click', async () => {
+    try {
+      await signIn();
+    } catch (error) {
+      console.error(error);
+      showToast('ログインできませんでした');
+    }
+  });
+  els.signOutButton.addEventListener('click', async () => {
+    await signOutCloud();
+    showToast('ログアウトしました');
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutosave();
   });
@@ -734,11 +786,18 @@ async function init() {
   applyTheme(theme);
   const appTitle = await getSetting('appTitle', '知識データベース');
   applyAppTitle(appTitle);
+  await seedInitialDataOnce(INITIAL_NOTES);
   state.notes = await listNotes();
   wireEvents();
   renderLibrary();
   showView('library');
   handleInitialShareTarget();
+
+  initCloudSync({
+    onNotesChanged: refreshNotesFromCloud,
+    onStatusChange: updateSyncStatusUI,
+    onAuthChanged: updateAuthUI,
+  });
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker registration failed', error));
