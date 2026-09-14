@@ -733,6 +733,27 @@ function scheduleAppTitleSave() {
   state.appTitleTimer = setTimeout(saveAppTitle, 500);
 }
 
+function canGoBackInApp() {
+  return Boolean(els.settingsDialog.open) || !els.editorView.hidden || !els.trashView.hidden;
+}
+
+// ハードウェア/ジェスチャーの「戻る」から呼ばれる共通の戻り先。
+// 編集中は必ずflushAutosaveしてから戻るので、戻る操作で未保存分が消えない。
+async function goBack() {
+  if (els.settingsDialog.open) {
+    els.settingsDialog.close();
+    return;
+  }
+  if (!els.editorView.hidden) {
+    await closeEditor();
+    return;
+  }
+  if (!els.trashView.hidden) {
+    showView('library');
+    return;
+  }
+}
+
 async function goHome() {
   if (state.activeNoteId) {
     await flushAutosave();
@@ -895,6 +916,19 @@ async function init() {
   });
 
   const isNativeApp = Boolean(window.Capacitor?.isNativePlatform?.());
+
+  // ハードウェアの戻るボタンと、Android端末の画面端スワイプ(ジェスチャーナビゲーション)は
+  // どちらもAndroid側では同じ「戻る」操作として扱われ、@capacitor/appのbackButton
+  // イベントに集約される。編集画面などの時はアプリを閉じずにgoBack()、
+  // ホーム(一覧)まで戻っていたら通常通りアプリを終了する。
+  const NativeApp = window.Capacitor?.Plugins?.App;
+  if (NativeApp) {
+    NativeApp.addListener('backButton', () => {
+      if (canGoBackInApp()) goBack();
+      else NativeApp.exitApp();
+    });
+  }
+
   if (isNativeApp) {
     // ネイティブアプリはAPK自体に最新のファイルが同梱されているので、
     // PWA用のservice workerキャッシュは不要かつ有害(更新した画面が古いまま

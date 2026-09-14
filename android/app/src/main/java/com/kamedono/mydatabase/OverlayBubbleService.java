@@ -20,6 +20,8 @@ import android.webkit.WebView;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.json.JSONObject;
 
 /**
@@ -281,11 +283,27 @@ public class OverlayBubbleService extends Service {
             if (clip == null || clip.getItemCount() == 0) return;
             CharSequence text = clip.getItemAt(0).coerceToText(this);
             if (text == null || text.length() == 0) return;
-            contentInput.setText(text.toString());
+            String cleaned = stripKindleStyleCitation(text.toString());
+            if (cleaned.isEmpty()) return;
+            contentInput.setText(cleaned);
             contentInput.setSelection(contentInput.getText().length());
         } catch (Exception ignored) {
             // クリップボードが読めなくても、空欄のまま続行する
         }
+    }
+
+    // Kindle等の読書アプリは、選択範囲をコピーすると自動的に区切り線
+    // ("==========")の下に書籍名や位置情報などの引用元情報を付け足すことがある。
+    // 「自分で選んだ部分以外は転記しないでほしい」というフィードバックに対応し、
+    // 区切り線が見つかったらそれより前(実際に選択した本文)だけを使う。
+    private static final Pattern CITATION_DIVIDER = Pattern.compile("(?m)^\\s*=+\\s*$");
+
+    private String stripKindleStyleCitation(String text) {
+        Matcher matcher = CITATION_DIVIDER.matcher(text);
+        if (matcher.find()) {
+            text = text.substring(0, matcher.start());
+        }
+        return text.trim();
     }
 
     private void collapseCard() {
