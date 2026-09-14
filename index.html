@@ -257,6 +257,56 @@
 
     setupOverlayToggle();
 
+    // 本アイコンを押した時に「今選択している文字列だけ」を転記するための
+    // アクセシビリティ権限。重ねて表示より強い権限なので、明示的にONにした時だけ使う。
+    // OFFのままでも従来通りクリップボードからの転記にフォールバックする。
+    function setupSelectionPermissionToggle() {
+      const OverlayBubble = window.Capacitor?.Plugins?.OverlayBubble;
+      if (!OverlayBubble) return;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'selectionPermissionButton';
+      btn.setAttribute('aria-label', '選択中の文字列を読み取る機能の設定');
+      Object.assign(btn.style, {
+        position: 'fixed', left: '16px', bottom: '128px', zIndex: 40,
+        width: '48px', height: '48px', borderRadius: '999px', border: 'none',
+        background: '#1c1c1c', color: '#fff', fontSize: '20px', cursor: 'pointer',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      });
+      btn.textContent = '🩸';
+      document.body.appendChild(btn);
+
+      async function refresh() {
+        const perm = await OverlayBubble.checkSelectionPermission();
+        btn.style.opacity = perm.granted ? '1' : '0.55';
+        btn.title = perm.granted
+          ? '選択中の文字列を読み取る機能: ON'
+          : '選択中の文字列を読み取る機能: OFF（タップで設定）';
+      }
+
+      btn.addEventListener('click', async () => {
+        const perm = await OverlayBubble.checkSelectionPermission();
+        if (perm.granted) {
+          alert('すでに有効です。無効にしたい場合は、設定 > ユーザー補助 から「知識データベース」をOFFにしてください。');
+          return;
+        }
+        const proceed = confirm(
+          '本アイコンを押した時、他アプリで選択中の文字列だけを内容欄に自動転記できるようにします。\n' +
+          '(OFFのままでも、コピーした内容からの転記は今まで通り使えます)\n\n' +
+          '次の画面の一覧から「知識データベース」を探してONにしてください。\n\n設定画面を開きますか？'
+        );
+        if (proceed) await OverlayBubble.requestSelectionPermission();
+      });
+
+      refresh();
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refresh();
+      });
+    }
+
+    setupSelectionPermissionToggle();
+
     function setupUpdateChecker() {
       const Updater = window.Capacitor?.Plugins?.Updater;
       if (!Updater) return; // ブラウザ版では何もしない

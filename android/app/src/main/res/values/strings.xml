@@ -4,4 +4,5 @@
     <string name="title_activity_main">知識データベース</string>
     <string name="package_name">com.kamedono.mydatabase</string>
     <string name="custom_url_scheme">com.kamedono.mydatabase</string>
+    <string name="accessibility_service_description">本アイコンを押した時、画面で選択中の文字列だけをメモの内容欄に転記するために使います。他の操作は行いません。</string>
 </resources>
