@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.text.TextUtils;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -71,5 +72,41 @@ public class OverlayPlugin extends Plugin {
             return Settings.canDrawOverlays(getContext());
         }
         return true;
+    }
+
+    // 「選択中の文字列だけを転記する」機能に使う、アクセシビリティサービスの権限。
+    // 重ねて表示より強い権限なので、ユーザーが明示的にONにした時だけ使う。
+    @PluginMethod
+    public void checkSelectionPermission(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", hasSelectionPermission());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestSelectionPermission(PluginCall call) {
+        if (!hasSelectionPermission()) {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+        }
+        JSObject result = new JSObject();
+        result.put("granted", hasSelectionPermission());
+        call.resolve(result);
+    }
+
+    private boolean hasSelectionPermission() {
+        String target = getContext().getPackageName() + "/" + SelectionAccessibilityService.class.getCanonicalName();
+        String enabledServices = Settings.Secure.getString(
+            getContext().getContentResolver(),
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        );
+        if (TextUtils.isEmpty(enabledServices)) return false;
+        TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(':');
+        splitter.setString(enabledServices);
+        while (splitter.hasNext()) {
+            if (splitter.next().equalsIgnoreCase(target)) return true;
+        }
+        return false;
     }
 }

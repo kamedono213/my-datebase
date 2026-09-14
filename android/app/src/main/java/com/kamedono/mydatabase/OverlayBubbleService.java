@@ -266,6 +266,30 @@ public class OverlayBubbleService extends Service {
         windowManager.addView(cardView, cardParams);
         cardAdded = true;
         titleInput.requestFocus();
+        prefillFromSelectionOrClipboard(contentInput);
+    }
+
+    /**
+     * まず「今まさに画面で選択されている文字列」をアクセシビリティサービス経由で
+     * 直接読みにいく(選択しただけではクリップボードは更新されないため、こちらの方が
+     * 「選択した部分以外は転記しない」という要望に正確に合う)。アクセシビリティの
+     * 権限が無い/見つからない場合だけ、従来通りクリップボードにフォールバックする。
+     */
+    private void prefillFromSelectionOrClipboard(EditText contentInput) {
+        String selected = null;
+        SelectionAccessibilityService service = SelectionAccessibilityService.getInstance();
+        if (service != null) {
+            try {
+                selected = service.getCurrentSelectionText();
+            } catch (Exception ignored) {
+                selected = null;
+            }
+        }
+        if (selected != null && !selected.isEmpty()) {
+            contentInput.setText(selected);
+            contentInput.setSelection(contentInput.getText().length());
+            return;
+        }
         prefillFromClipboard(contentInput);
     }
 
