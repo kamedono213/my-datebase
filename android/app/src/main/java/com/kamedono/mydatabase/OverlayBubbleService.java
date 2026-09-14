@@ -3,7 +3,6 @@ package com.kamedono.mydatabase;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -11,14 +10,20 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.WebView;
+import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.TextView;
+import org.json.JSONObject;
 
 /**
  * 画面のどこにいても押せる「本アイコン」を常駐表示するフォアグラウンドサービス。
- * ドラッグで移動、タップでQuickAddActivity（クイック追加ダイアログ）を開く。
+ * タップすると、別の画面に移動せず、その場でカード状の入力欄を展開する。
+ * 保存は隠しWebView(overlaybridge.html)経由で、既存アプリと同じIndexedDBに書き込む。
  */
 public class OverlayBubbleService extends Service {
 
@@ -27,8 +32,17 @@ public class OverlayBubbleService extends Service {
     private static final int TAP_MOVE_THRESHOLD_PX = 18;
 
     private WindowManager windowManager;
+
     private View bubbleView;
     private WindowManager.LayoutParams bubbleParams;
+    private boolean bubbleAdded = false;
+
+    private View cardView;
+    private WindowManager.LayoutParams cardParams;
+    private boolean cardAdded = false;
+
+    private WebView bridgeWebView;
+    private boolean bridgeReady = false;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -39,6 +53,8 @@ public class OverlayBubbleService extends Service {
     public void onCreate() {
         super.onCreate();
         startForeground(NOTIFICATION_ID, buildNotification());
+        windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        setupBridgeWebView();
         addBubbleView();
     }
 
@@ -50,14 +66,20 @@ public class OverlayBubbleService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (windowManager != null && bubbleView != null) {
+        removeBubbleView();
+        if (cardAdded && cardView != null) {
             try {
-                windowManager.removeView(bubbleView);
+                windowManager.removeView(cardView);
             } catch (IllegalArgumentException ignored) {
-                // すでに取り除かれている場合は何もしない
             }
+            cardAdded = false;
+        }
+        if (bridgeWebView != null) {
+            bridgeWebView.destroy();
         }
     }
+
+    // ---- 通知(フォアグラウンドサービスに必須) ----
 
     private Notification buildNotification() {
         NotificationManager manager = getSystemService(NotificationManager.class);
@@ -83,9 +105,47 @@ public class OverlayBubbleService extends Service {
             .build();
     }
 
-    private void addBubbleView() {
-        windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+    // ---- 保存用の隠しWebView ----
 
+    private void setupBridgeWebView() {
+        bridgeWebView = new WebView(this);
+        bridgeWebView.getSettings().setJavaScriptEnabled(true);
+        bridgeWebView.getSettings().setDomStorageEnabled(true);
+        bridgeWebView.getSettings().setDatabaseEnabled(true);
+        bridgeWebView.loadUrl("file:///android_asset/public/overlaybridge.html");
+
+        // 画面には映さないが、WebViewが正しく動くにはウィンドウに追加されている必要がある
+        WindowManager.LayoutParams hiddenParams = new WindowManager.LayoutParams(
+            1,
+            1,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        );
+        hiddenParams.gravity = Gravity.TOP | Gravity.START;
+        try {
+            windowManager.addView(bridgeWebView, hiddenParams);
+        } catch (Exception ignored) {
+            // オーバーレイ権限が無い等で失敗した場合でも致命的にはしない
+        }
+    }
+
+    private void saveNote(String title, String content, Runnable onDone) {
+        String js = "window.__overlaySave && window.__overlaySave(" + JSONObject.quote(title) + "," + JSONObject.quote(content) + ")";
+        bridgeWebView.evaluateJavascript(js, value -> {
+            if (onDone != null) onDone.run();
+        });
+    }
+
+    private int overlayType() {
+        return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            : WindowManager.LayoutParams.TYPE_PHONE;
+    }
+
+    // ---- ふきだしアイコン(たたんだ状態) ----
+
+    private void addBubbleView() {
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_bubble_book);
         icon.setBackgroundResource(R.drawable.bg_bubble_circle);
@@ -93,14 +153,10 @@ public class OverlayBubbleService extends Service {
         icon.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
         bubbleView = icon;
 
-        int overlayType = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            : WindowManager.LayoutParams.TYPE_PHONE;
-
         bubbleParams = new WindowManager.LayoutParams(
             dpToPx(48),
             dpToPx(48),
-            overlayType,
+            overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         );
@@ -109,6 +165,7 @@ public class OverlayBubbleService extends Service {
         bubbleParams.y = dpToPx(160);
 
         windowManager.addView(bubbleView, bubbleParams);
+        bubbleAdded = true;
 
         bubbleView.setOnTouchListener(new View.OnTouchListener() {
             private int initialX;
@@ -135,12 +192,12 @@ public class OverlayBubbleService extends Service {
                         }
                         bubbleParams.x = initialX + dx;
                         bubbleParams.y = initialY + dy;
-                        windowManager.updateViewLayout(bubbleView, bubbleParams);
+                        if (bubbleAdded) windowManager.updateViewLayout(bubbleView, bubbleParams);
                         return true;
                     }
                     case MotionEvent.ACTION_UP:
                         if (!moved) {
-                            openQuickAdd();
+                            expandCard();
                         }
                         return true;
                 }
@@ -149,10 +206,76 @@ public class OverlayBubbleService extends Service {
         });
     }
 
-    private void openQuickAdd() {
-        Intent intent = new Intent(this, QuickAddActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
+    private void removeBubbleView() {
+        if (bubbleAdded && bubbleView != null) {
+            try {
+                windowManager.removeView(bubbleView);
+            } catch (IllegalArgumentException ignored) {
+            }
+            bubbleAdded = false;
+        }
+    }
+
+    // ---- クイック入力カード(展開した状態) ----
+
+    private void expandCard() {
+        removeBubbleView();
+
+        cardView = LayoutInflater.from(this).inflate(R.layout.overlay_quickadd, null);
+        EditText titleInput = cardView.findViewById(R.id.overlayTitleInput);
+        EditText contentInput = cardView.findViewById(R.id.overlayContentInput);
+        TextView statusText = cardView.findViewById(R.id.overlayStatusText);
+        TextView cancelButton = cardView.findViewById(R.id.overlayCancelButton);
+        TextView saveButton = cardView.findViewById(R.id.overlaySaveButton);
+
+        cancelButton.setOnClickListener(v -> collapseCard());
+
+        saveButton.setOnClickListener(v -> {
+            String title = titleInput.getText().toString().trim();
+            String content = contentInput.getText().toString().trim();
+            if (title.isEmpty() && content.isEmpty()) {
+                collapseCard();
+                return;
+            }
+            statusText.setText("保存中...");
+            saveNote(title, content, () -> {
+                statusText.setText("保存しました");
+                cardView.postDelayed(this::collapseCard, 350);
+            });
+        });
+
+        cardParams = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        );
+        // このウィンドウだけは入力を受け付けたいのでFLAG_NOT_FOCUSABLEを付けない。
+        // キーボードで隠れないよう、パン方式で調整する。
+        cardParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+            | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
+        cardParams.gravity = Gravity.TOP | Gravity.START;
+        cardParams.x = dpToPx(16);
+        cardParams.y = dpToPx(120);
+
+        windowManager.addView(cardView, cardParams);
+        cardAdded = true;
+        titleInput.requestFocus();
+    }
+
+    private void collapseCard() {
+        if (cardAdded && cardView != null) {
+            try {
+                windowManager.removeView(cardView);
+            } catch (IllegalArgumentException ignored) {
+            }
+            cardAdded = false;
+            cardView = null;
+        }
+        if (!bubbleAdded) {
+            addBubbleView();
+        }
     }
 
     private int dpToPx(int dp) {

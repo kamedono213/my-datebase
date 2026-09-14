@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_card_rounded"
+    android:padding="14dp"
+    android:elevation="8dp">
+
+    <EditText
+        android:id="@+id/overlayTitleInput"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:hint="タイトル"
+        android:inputType="text"
+        android:maxLines="1"
+        android:background="@android:color/transparent"
+        android:textColorHint="#999999"
+        android:textColor="#1c1c1c"
+        android:textSize="15sp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E5E5E5"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp" />
+
+    <EditText
+        android:id="@+id/overlayContentInput"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:minLines="3"
+        android:maxLines="6"
+        android:hint="内容"
+        android:gravity="top"
+        android:inputType="textMultiLine"
+        android:background="@android:color/transparent"
+        android:textColorHint="#999999"
+        android:textColor="#1c1c1c"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="10dp"
+        android:gravity="end">
+
+        <TextView
+            android:id="@+id/overlayCancelButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="閉じる"
+            android:textColor="#666666"
+            android:textSize="14sp"
+            android:padding="10dp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/overlaySaveButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="保存"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:padding="10dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_bubble_circle"
+            android:minWidth="72dp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/overlayStatusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#888888"
+        android:layout_marginTop="4dp" />
+
+</LinearLayout>
