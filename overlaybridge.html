@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>overlay bridge</title></head>
+<body>
+<script type="module">
+  import { putNote } from './src/db.js';
+  // OverlayBubbleServiceの隠しWebViewから evaluateJavascript で呼ばれる保存関数。
+  // 通常のUIは持たない、ネイティブのオーバーレイUIから既存のIndexedDBへ橋渡しするだけの役目。
+  window.__overlaySave = async (title, content) => {
+    try {
+      if (!title && !content) return 'skip';
+      await putNote({ title, content, tags: [] });
+      return 'ok';
+    } catch (e) {
+      return 'error:' + (e && e.message ? e.message : String(e));
+    }
+  };
+  window.__overlayReady = true;
+</script>
+</body>
+</html>

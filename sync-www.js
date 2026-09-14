@@ -6,7 +6,7 @@ const path = require("path");
 const root = __dirname;
 const dest = path.join(root, "www");
 
-const items = ["index.html", "quickadd.html", "styles.css", "sw.js", "manifest.webmanifest", "src", "icons"];
+const items = ["index.html", "quickadd.html", "overlaybridge.html", "styles.css", "sw.js", "manifest.webmanifest", "src", "icons"];
 
 function copyRecursive(src, dst) {
   const stat = fs.statSync(src);
