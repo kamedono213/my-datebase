@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f5">
-  <meta name="description" content="端末内だけで使える、シンプルな個人用知識データベース">
+  <meta name="description" content="端末内だけで使える、シンプルな個人用ピックノート">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css">
-  <title>知識データベース</title>
+  <title>ピックノート</title>
 </head>
 <body>
   <div class="app-shell">
@@ -17,7 +17,7 @@
         <div class="brand-copy">
           <div class="eyebrow">MY KNOWLEDGE</div>
           <div class="app-title-row">
-            <input id="appTitleInput" class="app-title-input" type="text" value="知識データベース" maxlength="60" aria-label="データベース名">
+            <input id="appTitleInput" class="app-title-input" type="text" value="ピックノート" maxlength="60" aria-label="データベース名">
             <span class="title-edit-mark" aria-hidden="true">✎</span>
           </div>
         </div>
@@ -143,6 +143,10 @@
       </select>
 
       <div class="settings-block">
+        <button id="replayTutorialButton" class="secondary-btn" type="button">使い方を見る</button>
+      </div>
+
+      <div class="settings-block">
         <strong>アカウント</strong>
         <p id="authStatusText" class="muted">未ログインです。ログインすると、ブラウザのデータを削除しても知識をクラウドから復元できます。</p>
         <button id="signInButton" class="primary-btn" type="button">Googleアカウントでログイン</button>
@@ -239,7 +243,7 @@
           if (!perm.granted) {
             const granted = confirm(
               '常駐アイコンを表示するには「他のアプリの上に重ねて表示」の許可が必要です。\n' +
-              '次の画面で「知識データベース」の許可をONにしてから、このボタンをもう一度押してください。\n\n設定画面を開きますか？'
+              '次の画面で「ピックノート」の許可をONにしてから、このボタンをもう一度押してください。\n\n設定画面を開きますか？'
             );
             if (granted) await OverlayBubble.requestPermission();
             return;
@@ -256,47 +260,195 @@
     }
 
     setupOverlayToggle();
+  </script>
 
-    function setupUpdateChecker() {
-      const Updater = window.Capacitor?.Plugins?.Updater;
-      if (!Updater) return; // ブラウザ版では何もしない
+  <!--
+    初回起動時のチュートリアル。実際の画面要素をハイライトし、
+    ユーザーが実際にそのボタンを押して次に進む形式。
+    設定画面の「使い方を見る」からいつでも再生できる。
+  -->
+  <style>
+    .tutorial-spot {
+      position: fixed; z-index: 9998; pointer-events: none;
+      border-radius: 14px; box-shadow: 0 0 0 9999px rgba(10, 10, 10, 0.62);
+      transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+    }
+    .tutorial-tip {
+      position: fixed; z-index: 9999; max-width: 300px;
+      background: var(--surface, #fff); color: var(--text, #1c1c1c);
+      border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      font-size: 14px; line-height: 1.6;
+    }
+    .tutorial-tip.center {
+      left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 320px; text-align: center;
+    }
+    .tutorial-tip .tt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    .tutorial-tip button {
+      border: 0; border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 700;
+      background: #1c1c1c; color: #fff; cursor: pointer;
+    }
+    .tutorial-tip button.tt-skip { background: transparent; color: var(--muted, #888); padding: 8px 10px; }
+    .tutorial-tip .tt-hint { display: block; margin-top: 8px; font-size: 12px; color: var(--muted, #888); }
+    .tutorial-inline-tip {
+      background: var(--surface-2, #f0eee6); border-radius: 12px; padding: 12px 14px;
+      margin-top: 10px; font-size: 13px; line-height: 1.6;
+    }
+    .tutorial-inline-tip .tt-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .tutorial-inline-tip button {
+      border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 700;
+      background: #1c1c1c; color: #fff; cursor: pointer;
+    }
+  </style>
+  <script type="module">
+    import { getSetting, setSetting } from './src/db.js';
 
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'updateCheckButton';
-      btn.setAttribute('aria-label', 'アップデートを確認');
-      Object.assign(btn.style, {
-        position: 'fixed', left: '16px', bottom: '72px', zIndex: 40,
-        width: '48px', height: '48px', borderRadius: '999px', border: 'none',
-        background: '#1c1c1c', color: '#fff', fontSize: '20px', cursor: 'pointer',
-        boxShadow: '0 4px 14px rgba(0,0,0,0.25)', opacity: '0.55',
-      });
-      btn.textContent = '⬇️';
-      btn.title = '最新版を確認';
-      document.body.appendChild(btn);
+    const TUTORIAL_KEY = 'tutorialCompleted';
 
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        btn.textContent = '…';
-        try {
-          const result = await Updater.checkAndInstall();
-          if (result.status === 'up_to_date') {
-            alert('最新版です（v' + result.currentVersion + '）。');
-          } else if (result.status === 'installing') {
-            alert('新しいバージョン(v' + result.version + ')をダウンロードしました。インストール画面の指示に従ってください。');
-          } else if (result.status === 'no_apk_asset') {
-            alert('最新のリリースにAPKが見つかりませんでした。');
-          }
-        } catch (e) {
-          alert('アップデート確認に失敗しました: ' + (e && e.message ? e.message : e));
-        } finally {
-          btn.disabled = false;
-          btn.textContent = '⬇️';
-        }
-      });
+    function buildSteps() {
+      const hasOverlayBubble = Boolean(document.getElementById('overlayToggleButton'));
+      const steps = [
+        { kind: 'intro',
+          text: 'このアプリは、調べたことをまとめておいたり、忘れないようにするメモにも使えます。読んでいて気づいたことを、その場でサッと残せます。使い方を簡単に紹介します。' },
+        { kind: 'action', target: '#addButton', event: 'click',
+          text: 'ここを押すと、タイトルと内容を入力してメモを作れます。押してみてください。' },
+        { kind: 'action', target: '#tagsInput', event: 'focus',
+          text: 'ここにタグを入力できます(カンマ区切りで複数OK)。あとでタグ絞り込みに使えます。タップしてみてください。' },
+        { kind: 'action', target: '#backButton', event: 'click',
+          text: '書けたら、ここを押して一覧に戻ります。押してみてください。' },
+        { kind: 'info', target: '#tagFilters',
+          text: 'さっき付けたタグは、ここに並びます。押すとそのタグのメモだけに絞り込めます。' },
+        { kind: 'info', target: '#searchInput',
+          text: 'ここでタイトル・本文・タグを検索できます。' },
+        { kind: 'action', target: '#settingsButton', event: 'click',
+          text: '設定を開くには、ここを押します。押してみてください。' },
+        { kind: 'inline', target: '#themeSelect',
+          text: 'ここでダークモードなどの見た目を選べます。' },
+      ];
+      if (hasOverlayBubble) {
+        steps.push({ kind: 'info', target: '#overlayToggleButton',
+          text: 'この📌ボタンをONにすると、他のアプリを見ている時でもメモできるようになります。ONにした状態で別のアプリやブラウザに移動して開いてみてください。何かをコピーしていれば、その内容が自動で入力欄に入ります。' });
+      }
+      steps.push({ kind: 'outro', text: 'これで基本の使い方は以上です。設定画面の「使い方を見る」から、いつでも見返せます。' });
+      return steps;
     }
 
-    setupUpdateChecker();
+    let spotEl = null;
+    let tipEl = null;
+    let cleanupFns = [];
+
+    function clearOverlay() {
+      cleanupFns.forEach((fn) => fn());
+      cleanupFns = [];
+      spotEl?.remove();
+      tipEl?.remove();
+      spotEl = null;
+      tipEl = null;
+    }
+
+    function placeSpot(target) {
+      if (!spotEl) {
+        spotEl = document.createElement('div');
+        spotEl.className = 'tutorial-spot';
+        document.body.appendChild(spotEl);
+      }
+      const rect = target.getBoundingClientRect();
+      const pad = 6;
+      spotEl.style.top = `${rect.top - pad}px`;
+      spotEl.style.left = `${rect.left - pad}px`;
+      spotEl.style.width = `${rect.width + pad * 2}px`;
+      spotEl.style.height = `${rect.height + pad * 2}px`;
+    }
+
+    function placeTip(target, html, { center = false } = {}) {
+      tipEl = document.createElement('div');
+      tipEl.className = center ? 'tutorial-tip center' : 'tutorial-tip';
+      tipEl.innerHTML = html;
+      document.body.appendChild(tipEl);
+      if (!center && target) {
+        const rect = target.getBoundingClientRect();
+        const tipRect = tipEl.getBoundingClientRect();
+        let top = rect.bottom + 14;
+        if (top + tipRect.height > window.innerHeight - 12) top = rect.top - tipRect.height - 14;
+        let left = Math.min(
+          Math.max(12, rect.left),
+          window.innerWidth - tipRect.width - 12
+        );
+        tipEl.style.top = `${Math.max(12, top)}px`;
+        tipEl.style.left = `${left}px`;
+      }
+      return tipEl;
+    }
+
+    function runTutorial(steps, startIndex = 0) {
+      let i = startIndex;
+
+      function finish() {
+        clearOverlay();
+        setSetting(TUTORIAL_KEY, true);
+      }
+
+      function next() {
+        clearOverlay();
+        if (i >= steps.length) { finish(); return; }
+        showStep(steps[i]);
+      }
+
+      function showStep(step) {
+        if (step.kind === 'intro' || step.kind === 'outro') {
+          const label = step.kind === 'outro' ? 'はじめる' : '次へ';
+          placeTip(null, `<div>${step.text}</div><div class="tt-actions">
+            <button class="tt-skip" type="button" data-act="skip">スキップ</button>
+            <button type="button" data-act="next">${label}</button>
+          </div>`, { center: true });
+          tipEl.querySelector('[data-act="next"]').addEventListener('click', () => { i++; next(); });
+          tipEl.querySelector('[data-act="skip"]').addEventListener('click', finish);
+          return;
+        }
+
+        const target = document.querySelector(step.target);
+        if (!target) { i++; next(); return; }
+
+        if (step.kind === 'inline') {
+          // ダイアログ内などの要素は、通常のスポットライトではなく要素の直後に案内を挿入する
+          const box = document.createElement('div');
+          box.className = 'tutorial-inline-tip';
+          box.innerHTML = `<div>${step.text}</div><div class="tt-actions"><button type="button">次へ</button></div>`;
+          target.insertAdjacentElement('afterend', box);
+          const advance = () => { box.remove(); i++; next(); };
+          box.querySelector('button').addEventListener('click', advance);
+          cleanupFns.push(() => box.remove());
+          return;
+        }
+
+        placeSpot(target);
+        placeTip(target, `<div>${step.text}</div>` + (step.kind === 'action'
+          ? '<span class="tt-hint">実際に押して進みます</span><div class="tt-actions"><button class="tt-skip" type="button" data-act="skip">スキップ</button></div>'
+          : `<div class="tt-actions"><button class="tt-skip" type="button" data-act="skip">スキップ</button><button type="button" data-act="next">次へ</button></div>`));
+
+        tipEl.querySelector('[data-act="skip"]')?.addEventListener('click', finish);
+        tipEl.querySelector('[data-act="next"]')?.addEventListener('click', () => { i++; next(); });
+
+        if (step.kind === 'action') {
+          const handler = () => { i++; next(); };
+          target.addEventListener(step.event, handler, { once: true });
+          cleanupFns.push(() => target.removeEventListener(step.event, handler));
+        }
+      }
+
+      next();
+    }
+
+    async function startTutorialIfNeeded() {
+      const done = await getSetting(TUTORIAL_KEY, false);
+      if (!done) runTutorial(buildSteps());
+    }
+
+    document.getElementById('replayTutorialButton')?.addEventListener('click', () => {
+      document.getElementById('settingsDialog')?.close();
+      setTimeout(() => runTutorial(buildSteps()), 150);
+    });
+
+    startTutorialIfNeeded();
   </script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
 import { summarize } from './summarize.js';
-import { INITIAL_NOTES } from './initial-data.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
@@ -8,7 +7,6 @@ import {
   setSetting,
   exportData,
   importData,
-  seedInitialDataOnce,
 } from './db.js';
 import {
   putNote,
@@ -19,7 +17,9 @@ import {
 } from './cloud-sync.js';
 
 const $ = (id) => document.getElementById(id);
-const DEFAULT_APP_TITLE = '知識データベース';
+const DEFAULT_APP_TITLE = 'ピックノート';
+const FREE_NOTE_LIMIT = 10;
+const PRO_UNLOCKED_KEY = 'proUnlocked';
 
 const els = {
   libraryView: $('libraryView'),
@@ -370,9 +370,26 @@ function renderRelated(note) {
   }
 }
 
+// 無料枠(10件)を超えて新規作成しようとしていないか確認する。
+// 既存メモを開く時(noteIdあり)は対象外。
+async function canCreateNewNote() {
+  const unlocked = await getSetting(PRO_UNLOCKED_KEY, false);
+  if (unlocked) return true;
+  const activeCount = state.notes.filter((note) => note.deletedAt == null).length;
+  return activeCount < FREE_NOTE_LIMIT;
+}
+
+function showUpgradePrompt() {
+  showToast(`無料版は${FREE_NOTE_LIMIT}件までです。アップグレードは近日対応予定です。`);
+}
+
 async function openEditor(noteId = null, seed = null) {
   let note = noteId ? state.notes.find((item) => item.id === noteId) : null;
   if (!note) {
+    if (!(await canCreateNewNote())) {
+      showUpgradePrompt();
+      return;
+    }
     note = createNote(seed || {});
     state.notes.push(note);
     await putNote(note);
@@ -499,6 +516,11 @@ async function saveQuickCapture() {
     showToast('タイトルか内容を入力してください');
     return;
   }
+  if (!(await canCreateNewNote())) {
+    closeQuickCapture();
+    showUpgradePrompt();
+    return;
+  }
   const note = createNote(seed);
   state.notes.push(note);
   await putNote(note);
@@ -582,6 +604,10 @@ async function duplicateActive() {
   await flushAutosave();
   const note = currentNote();
   if (!note) return;
+  if (!(await canCreateNewNote())) {
+    showUpgradePrompt();
+    return;
+  }
   const clone = createNote({
     title: `${note.title || '無題'}（コピー）`,
     content: note.content,
@@ -772,7 +798,7 @@ async function handleImport(file) {
     state.notes = await listNotes();
     const theme = await getSetting('theme', 'system');
     applyTheme(theme);
-    const appTitle = await getSetting('appTitle', '知識データベース');
+    const appTitle = await getSetting('appTitle', 'ピックノート');
     applyAppTitle(appTitle);
     state.selectedTags.clear();
     state.query = '';
@@ -900,10 +926,19 @@ function wireEvents() {
 async function init() {
   const theme = await getSetting('theme', 'system');
   applyTheme(theme);
-  const appTitle = await getSetting('appTitle', '知識データベース');
+  const appTitle = await getSetting('appTitle', 'ピックノート');
   applyAppTitle(appTitle);
-  await seedInitialDataOnce(INITIAL_NOTES);
   state.notes = await listNotes();
+
+  // 無料枠(10件)導入より前から使っていた人が、更新した途端に新規作成をブロック
+  // されることのないように救済する。「proUnlockedが未設定」かつ「既に10件を超えて
+  // 使っている」場合だけ、自動的に無制限扱いにする。
+  const proUnlockedSetting = await getSetting(PRO_UNLOCKED_KEY, null);
+  if (proUnlockedSetting === null) {
+    const activeCount = state.notes.filter((note) => note.deletedAt == null).length;
+    await setSetting(PRO_UNLOCKED_KEY, activeCount > FREE_NOTE_LIMIT);
+  }
+
   wireEvents();
   renderLibrary();
   showView('library');
