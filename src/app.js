@@ -1,4 +1,5 @@
 import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
+import { summarize } from './summarize.js';
 import { INITIAL_NOTES } from './initial-data.js';
 import { parseSharePayload } from './share.js';
 import {
@@ -55,6 +56,7 @@ const els = {
   copyTitleButton: $('copyTitleButton'),
   copyBodyButton: $('copyBodyButton'),
   copyAllButton: $('copyAllButton'),
+  summarizeButton: $('summarizeButton'),
   duplicateButton: $('duplicateButton'),
   deleteButton: $('deleteButton'),
   attachmentInput: $('attachmentInput'),
@@ -148,8 +150,15 @@ function renderTagFilters(tagEntries, colorMap) {
     button.style.setProperty('--tag-color', colorMap[tag]);
     button.textContent = `${tag} ${count}`;
     button.addEventListener('click', () => {
-      if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
-      else state.selectedTags.add(tag);
+      // 以前は複数タグをAND条件で積み重ねる仕様だったが、選択中のタグが
+      // 画面から見えづらく「別のタグを押したはずが該当なしになる」原因になっていた。
+      // タップ1回=そのタグだけで絞り込み、もう一度押すと解除、に変更。
+      if (state.selectedTags.has(tag) && state.selectedTags.size === 1) {
+        state.selectedTags.clear();
+      } else {
+        state.selectedTags.clear();
+        state.selectedTags.add(tag);
+      }
       renderLibrary();
     });
     els.tagFilters.append(button);
@@ -724,6 +733,16 @@ function wireEvents() {
     const note = syncInputsToNote();
     const tagLine = note.tags.length ? `\n\n#${note.tags.join(' #')}` : '';
     writeClipboard(`${note.title}\n\n${note.content}${tagLine}`.trim());
+  });
+  els.summarizeButton.addEventListener('click', () => {
+    const content = els.contentInput.value;
+    if (!content.trim()) {
+      showToast('本文が空です');
+      return;
+    }
+    const summary = summarize(content, 3);
+    writeClipboard(summary);
+    showToast('要約をコピーしました(無料のオフライン要約・簡易版)');
   });
   els.duplicateButton.addEventListener('click', duplicateActive);
   els.deleteButton.addEventListener('click', moveActiveToTrash);
