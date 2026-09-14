@@ -1,0 +1,29 @@
+{
+  "name": "my-datebase-inspect",
+  "version": "1.0.0",
+  "description": "自分専用の、シンプルな知識データベースです。外部サービスやアカウントは不要で、データはブラウザの IndexedDB に保存されます。",
+  "main": "sw.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kamedono213/my-datebase.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kamedono213/my-datebase/issues"
+  },
+  "homepage": "https://github.com/kamedono213/my-datebase#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2"
+  }
+}

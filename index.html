@@ -199,5 +199,62 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="./src/app.js"></script>
+
+  <!--
+    ネイティブアプリ(Capacitor)で動いている時だけ、画面常駐アイコン(オーバーレイ)の
+    ON/OFF切り替えボタンを出す。GitHub Pages版(素のブラウザ)ではCapacitorが無いので
+    何も表示されない。app.jsの本体ロジックには触れず、独立して動く小さな追加。
+  -->
+  <script type="module">
+    function setupOverlayToggle() {
+      const OverlayBubble = window.Capacitor?.Plugins?.OverlayBubble;
+      if (!OverlayBubble) return; // ブラウザ版では何もしない
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'overlayToggleButton';
+      btn.setAttribute('aria-label', '常駐アイコンの切り替え');
+      Object.assign(btn.style, {
+        position: 'fixed', left: '16px', bottom: '16px', zIndex: 40,
+        width: '48px', height: '48px', borderRadius: '999px', border: 'none',
+        background: '#1c1c1c', color: '#fff', fontSize: '20px', cursor: 'pointer',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      });
+      btn.textContent = '📌';
+      document.body.appendChild(btn);
+
+      const STORAGE_KEY = 'overlay-bubble-enabled';
+      let enabled = localStorage.getItem(STORAGE_KEY) === '1';
+      updateBtn();
+
+      function updateBtn() {
+        btn.style.opacity = enabled ? '1' : '0.55';
+        btn.title = enabled ? '常駐アイコン: ON（タップでOFF）' : '常駐アイコン: OFF（タップでON）';
+      }
+
+      btn.addEventListener('click', async () => {
+        if (!enabled) {
+          const perm = await OverlayBubble.checkPermission();
+          if (!perm.granted) {
+            const granted = confirm(
+              '常駐アイコンを表示するには「他のアプリの上に重ねて表示」の許可が必要です。\n' +
+              '次の画面で「知識データベース」の許可をONにしてから、このボタンをもう一度押してください。\n\n設定画面を開きますか？'
+            );
+            if (granted) await OverlayBubble.requestPermission();
+            return;
+          }
+          await OverlayBubble.startBubble();
+          enabled = true;
+        } else {
+          await OverlayBubble.stopBubble();
+          enabled = false;
+        }
+        localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
+        updateBtn();
+      });
+    }
+
+    setupOverlayToggle();
+  </script>
 </body>
 </html>
