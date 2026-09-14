@@ -126,12 +126,27 @@ button { cursor: pointer; }
   cursor: pointer;
 }
 .note-card:active { transform: scale(.995); }
-.note-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.note-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; cursor: pointer; }
 .tab-dot {
   width: 11px; height: 11px; flex: 0 0 11px; border-radius: 999px; background: var(--tag-color);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tag-color) 14%, transparent);
 }
-.note-title { font-size: 1.02rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; }
+.note-title { font-size: 1.02rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.note-edit-btn {
+  flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; font-size: 1.05rem;
+  padding: 4px 2px; line-height: 1; opacity: .65;
+}
+.note-edit-btn:active { opacity: 1; }
+
+.note-inline-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s ease; }
+.note-inline-wrap.open { grid-template-rows: 1fr; }
+.note-inline-panel { overflow: hidden; min-height: 0; }
+.note-inline-inner { padding-top: 10px; }
+.note-inline-content {
+  width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+  padding: 10px; font: inherit; font-size: .92rem; color: var(--text); resize: none; outline: 0;
+  line-height: 1.55; box-sizing: border-box;
+}
 
 .fab {
   position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 12;
