@@ -818,7 +818,21 @@ async function init() {
     onAuthChanged: updateAuthUI,
   });
 
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const isNativeApp = Boolean(window.Capacitor?.isNativePlatform?.());
+  if (isNativeApp) {
+    // ネイティブアプリはAPK自体に最新のファイルが同梱されているので、
+    // PWA用のservice workerキャッシュは不要かつ有害(更新した画面が古いまま
+    // 表示され続けるバグの原因になる)。既に登録されてしまっている端末のために
+    // 明示的に解除・キャッシュ削除もしておく。
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        for (const reg of regs) reg.unregister();
+      }).catch(() => {});
+    }
+    if ('caches' in window) {
+      caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
+    }
+  } else if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker registration failed', error));
   }
 }
