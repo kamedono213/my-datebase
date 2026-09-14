@@ -81,6 +81,7 @@ const els = {
 const state = {
   notes: [],
   activeNoteId: null,
+  expandedNoteId: null,
   selectedTags: new Set(),
   query: '',
   sort: 'updated',
@@ -193,14 +194,19 @@ function renderLibrary() {
   for (const note of notes) {
     const card = document.createElement('article');
     card.className = 'note-card';
-    card.tabIndex = 0;
-    card.addEventListener('click', () => openEditor(note.id));
-    card.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') openEditor(note.id);
-    });
 
     const row = document.createElement('div');
     row.className = 'note-title-row';
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.addEventListener('click', () => toggleInlineExpand(note.id));
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleInlineExpand(note.id);
+      }
+    });
+
     const primaryTag = note.tags?.[0];
     if (primaryTag) {
       const dot = document.createElement('span');
@@ -215,9 +221,79 @@ function renderLibrary() {
     title.className = 'note-title';
     title.textContent = note.title.trim() || '無題';
     row.append(title);
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'note-edit-btn';
+    editBtn.setAttribute('aria-label', 'フルページで編集');
+    editBtn.title = 'フルページで編集';
+    editBtn.textContent = '✏️';
+    editBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openEditor(note.id);
+    });
+    row.append(editBtn);
+
     card.append(row);
+    card.append(buildInlinePanel(note));
     els.noteList.append(card);
+
+    if (state.expandedNoteId === note.id) {
+      const wrap = card.querySelector('.note-inline-wrap');
+      requestAnimationFrame(() => wrap.classList.add('open'));
+    }
   }
+}
+
+// タイトル行を押すとページ転換せずその場で内容を開く。中の内容欄はそのまま
+// 編集もできる(自動保存)。フルページでの編集はペンマーク経由。
+function toggleInlineExpand(noteId) {
+  state.expandedNoteId = state.expandedNoteId === noteId ? null : noteId;
+  renderLibrary();
+}
+
+const inlineSaveTimers = new Map();
+
+function scheduleInlineSave(note) {
+  clearTimeout(inlineSaveTimers.get(note.id));
+  const timer = setTimeout(async () => {
+    note.updatedAt = Date.now();
+    await putNote(note);
+  }, 500);
+  inlineSaveTimers.set(note.id, timer);
+}
+
+function buildInlinePanel(note) {
+  const wrap = document.createElement('div');
+  wrap.className = 'note-inline-wrap';
+  const panel = document.createElement('div');
+  panel.className = 'note-inline-panel';
+  const inner = document.createElement('div');
+  inner.className = 'note-inline-inner';
+
+  if (state.expandedNoteId === note.id) {
+    const textarea = document.createElement('textarea');
+    textarea.className = 'note-inline-content';
+    textarea.value = note.content;
+    textarea.placeholder = '内容を入力…';
+    textarea.rows = 1;
+    const autoResize = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    };
+    textarea.addEventListener('input', () => {
+      note.content = textarea.value;
+      scheduleInlineSave(note);
+      autoResize();
+    });
+    textarea.addEventListener('click', (event) => event.stopPropagation());
+    inner.append(textarea);
+    requestAnimationFrame(autoResize);
+  }
+
+  panel.append(inner);
+  wrap.append(panel);
+  return wrap;
 }
 
 function updateEditorButtons(note) {
