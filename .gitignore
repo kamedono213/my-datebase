@@ -1,2 +1,11 @@
 firebase-debug.log
 .firebase/
+node_modules/
+www/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/captures/
+*.apk
+.DS_Store

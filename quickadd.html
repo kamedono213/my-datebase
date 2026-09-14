@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>クイック追加</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px; font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+    background: transparent;
+  }
+  .sheet {
+    background: Canvas; color: CanvasText;
+    border-radius: 16px; padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  input, textarea {
+    font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid #8888;
+    background: transparent; color: inherit; width: 100%;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  .row { display: flex; gap: 8px; }
+  button {
+    font: inherit; font-weight: 700; padding: 10px 16px; border-radius: 10px; border: none; cursor: pointer;
+  }
+  #save { background: #1c1c1c; color: #fff; flex: 1; }
+  #cancel { background: #8882; color: inherit; }
+  #status { font-size: 12px; opacity: 0.7; min-height: 16px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <input id="title" placeholder="タイトル" autofocus>
+    <textarea id="content" placeholder="本文"></textarea>
+    <div id="status"></div>
+    <div class="row">
+      <button id="cancel">閉じる</button>
+      <button id="save">保存</button>
+    </div>
+  </div>
+
+<script type="module">
+  import { putNote } from './src/db.js';
+
+  const params = new URLSearchParams(location.search);
+  document.getElementById('title').value = params.get('title') || '';
+  document.getElementById('content').value = params.get('text') || params.get('url') || '';
+
+  function closeWindow() {
+    if (window.AndroidBridge && window.AndroidBridge.close) {
+      window.AndroidBridge.close();
+    } else {
+      window.close();
+    }
+  }
+
+  document.getElementById('cancel').addEventListener('click', closeWindow);
+
+  document.getElementById('save').addEventListener('click', async () => {
+    const title = document.getElementById('title').value.trim();
+    const content = document.getElementById('content').value.trim();
+    if (!title && !content) { closeWindow(); return; }
+    const statusEl = document.getElementById('status');
+    try {
+      await putNote({ title, content, tags: [] });
+      statusEl.textContent = '保存しました';
+      setTimeout(closeWindow, 400);
+    } catch (e) {
+      statusEl.textContent = '保存に失敗しました: ' + e.message;
+    }
+  });
+</script>
+</body>
+</html>
