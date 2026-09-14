@@ -4,6 +4,8 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
@@ -262,6 +264,28 @@ public class OverlayBubbleService extends Service {
         windowManager.addView(cardView, cardParams);
         cardAdded = true;
         titleInput.requestFocus();
+        prefillFromClipboard(contentInput);
+    }
+
+    /**
+     * 他アプリ(ブラウザ等)で文章を選択してコピーした状態でこのカードを開くと、
+     * 内容欄に自動で転記する。Android 10以降はクリップボード読み取りが
+     * 「フォーカスを持つウィンドウ」に限られるため、カードがフォーカスを
+     * 得た直後に読む。読めない/空の場合は何もしない。
+     */
+    private void prefillFromClipboard(EditText contentInput) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip()) return;
+            ClipData clip = clipboard.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return;
+            CharSequence text = clip.getItemAt(0).coerceToText(this);
+            if (text == null || text.length() == 0) return;
+            contentInput.setText(text.toString());
+            contentInput.setSelection(contentInput.getText().length());
+        } catch (Exception ignored) {
+            // クリップボードが読めなくても、空欄のまま続行する
+        }
     }
 
     private void collapseCard() {

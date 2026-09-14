@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "75867950507",
+    "project_id": "my-datebase-kb",
+    "storage_bucket": "my-datebase-kb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:75867950507:android:f53d828cd5c2bd843a56ee",
+        "android_client_info": {
+          "package_name": "com.kamedono.mydatabase"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "75867950507-uut8duoutlpl5jjm0dojmg2d8l8dpgi5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kamedono.mydatabase",
+            "certificate_hash": "845d9226e9b7d035d489e9a50ed7bf0d56426267"
+          }
+        },
+        {
+          "client_id": "75867950507-3k2bgeqovj5rmc2p8kco44uvk62q0tcs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjIlr2VNWh2v92_NG3-2kqsT06IGHaC2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "75867950507-3k2bgeqovj5rmc2p8kco44uvk62q0tcs.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

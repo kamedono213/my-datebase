@@ -16,6 +16,7 @@ const {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCredential,
   getRedirectResult,
   signOut,
   onAuthStateChanged,
@@ -52,6 +53,20 @@ export function getCurrentUser() {
 }
 
 export async function signInWithGoogle() {
+  // ネイティブアプリ(Capacitor)内のWebViewはGoogleにOAuth用途を許可されていない
+  // ("disallowed_useragent")ため、popup/redirectのWeb方式は失敗する。
+  // @capacitor-firebase/authenticationのネイティブGoogleサインインを使い、
+  // 結果のIDトークンでこのFirebase JS SDKのAuth状態にも反映させる。
+  const nativeAuth = window.Capacitor?.Plugins?.FirebaseAuthentication;
+  if (nativeAuth) {
+    const result = await nativeAuth.signInWithGoogle();
+    const idToken = result?.credential?.idToken;
+    if (!idToken) throw new Error('Google sign-in did not return an ID token');
+    const credential = GoogleAuthProvider.credential(idToken);
+    await signInWithCredential(auth, credential);
+    return;
+  }
+
   try {
     await signInWithPopup(auth, provider);
   } catch (error) {
@@ -75,8 +90,10 @@ export async function completeRedirectSignIn() {
   }
 }
 
-export function signOutOfGoogle() {
-  return signOut(auth);
+export async function signOutOfGoogle() {
+  const nativeAuth = window.Capacitor?.Plugins?.FirebaseAuthentication;
+  if (nativeAuth) await nativeAuth.signOut();
+  await signOut(auth);
 }
 
 function notesCollection(uid) {
