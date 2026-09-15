@@ -32,8 +32,6 @@ const els = {
   emptyState: $('emptyState'),
   resultCount: $('resultCount'),
   addButton: $('addButton'),
-  clipboardButton: $('clipboardButton'),
-  quickCaptureButton: $('quickCaptureButton'),
   quickCaptureDialog: $('quickCaptureDialog'),
   quickCancelButton: $('quickCancelButton'),
   quickTitleInput: $('quickTitleInput'),
@@ -41,7 +39,7 @@ const els = {
   quickContentInput: $('quickContentInput'),
   quickSaveButton: $('quickSaveButton'),
   quickEditButton: $('quickEditButton'),
-  randomButton: $('randomButton'),
+  quizButton: $('quizButton'),
   trashButton: $('trashButton'),
   settingsButton: $('settingsButton'),
   homeButton: $('homeButton'),
@@ -51,7 +49,7 @@ const els = {
   pinButton: $('pinButton'),
   favoriteButton: $('favoriteButton'),
   titleInput: $('titleInput'),
-  tagsInput: $('tagsInput'),
+  tagsPicker: $('tagsPicker'),
   contentInput: $('contentInput'),
   copyTitleButton: $('copyTitleButton'),
   copyBodyButton: $('copyBodyButton'),
@@ -83,12 +81,40 @@ const state = {
   activeNoteId: null,
   expandedNoteId: null,
   selectedTags: new Set(),
+  editingTags: new Set(),
+  tagRegistry: [], // [{ name, color }] 作成時に色を選べるタグの一覧
   query: '',
   sort: 'updated',
   autosaveTimer: null,
   toastTimer: null,
   appTitleTimer: null,
 };
+
+const TAG_COLOR_SWATCHES = [
+  '#E1665D', '#E8A33D', '#D9BB3C', '#6FA85B', '#3FA0A0',
+  '#4E8BC9', '#7C6FD1', '#C36FC0', '#8A8F98', '#4A4A4A',
+];
+
+async function upsertTagInRegistry(name, color) {
+  const registry = [...state.tagRegistry];
+  const idx = registry.findIndex((t) => t.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+  if (idx >= 0) registry[idx] = { name, color };
+  else registry.push({ name, color });
+  await setSetting('tagRegistry', registry);
+  state.tagRegistry = registry;
+  return registry;
+}
+
+// 登録済みタグは指定した色、それ以外(バックアップ由来などの未登録タグ)は
+// 従来通りの自動配色にフォールバックする。
+function resolveTagColorMap(tagOrder) {
+  const map = buildTagColorMap(tagOrder);
+  for (const entry of state.tagRegistry) {
+    const match = tagOrder.find((tag) => tag.toLocaleLowerCase() === entry.name.toLocaleLowerCase());
+    if (match) map[match] = entry.color;
+  }
+  return map;
+}
 
 function currentNote() {
   return state.notes.find((note) => note.id === state.activeNoteId) || null;
@@ -169,7 +195,7 @@ function renderTagFilters(tagEntries, colorMap) {
 function renderLibrary() {
   const tagEntries = collectAllTags();
   const tagOrder = tagEntries.map(([tag]) => tag);
-  const colorMap = buildTagColorMap(tagOrder);
+  const colorMap = resolveTagColorMap(tagOrder);
   renderTagFilters(tagEntries, colorMap);
 
   const notes = filterAndSortNotes(state.notes, {
@@ -199,7 +225,24 @@ function renderLibrary() {
     row.className = 'note-title-row';
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
-    row.addEventListener('click', () => toggleInlineExpand(note.id));
+
+    let longPressTimer = null;
+    let longPressTriggered = false;
+    row.addEventListener('pointerdown', () => {
+      longPressTriggered = false;
+      longPressTimer = setTimeout(() => {
+        longPressTriggered = true;
+        openRowMenu(note, row);
+      }, 500);
+    });
+    const cancelLongPress = () => clearTimeout(longPressTimer);
+    row.addEventListener('pointerup', cancelLongPress);
+    row.addEventListener('pointerleave', cancelLongPress);
+    row.addEventListener('pointercancel', cancelLongPress);
+    row.addEventListener('click', () => {
+      if (longPressTriggered) return;
+      toggleInlineExpand(note.id);
+    });
     row.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -225,12 +268,12 @@ function renderLibrary() {
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'note-edit-btn';
-    editBtn.setAttribute('aria-label', 'フルページで編集');
-    editBtn.title = 'フルページで編集';
+    editBtn.setAttribute('aria-label', '編集・削除メニュー');
+    editBtn.title = '編集・削除メニュー';
     editBtn.textContent = '✏️';
     editBtn.addEventListener('click', (event) => {
       event.stopPropagation();
-      openEditor(note.id);
+      openRowMenu(note, editBtn);
     });
     row.append(editBtn);
 
@@ -245,8 +288,58 @@ function renderLibrary() {
   }
 }
 
+// タイトルの長押し、またはペンマークのタップで出す「編集/削除」メニュー。
+function openRowMenu(note, anchorEl) {
+  document.querySelectorAll('.row-menu').forEach((menu) => menu.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'row-menu';
+
+  const editItem = document.createElement('button');
+  editItem.type = 'button';
+  editItem.textContent = '✏️ 編集';
+  editItem.addEventListener('click', () => {
+    menu.remove();
+    openEditor(note.id);
+  });
+
+  const deleteItem = document.createElement('button');
+  deleteItem.type = 'button';
+  deleteItem.className = 'danger';
+  deleteItem.textContent = '🗑 削除';
+  deleteItem.addEventListener('click', async () => {
+    menu.remove();
+    note.deletedAt = Date.now();
+    note.updatedAt = Date.now();
+    await putNote(note);
+    renderLibrary();
+    showToast('ゴミ箱へ移動しました');
+  });
+
+  menu.append(editItem, deleteItem);
+  document.body.append(menu);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  if (top + menuRect.height > window.innerHeight - 12) top = rect.top - menuRect.height - 6;
+  const left = Math.min(Math.max(12, rect.left), window.innerWidth - menuRect.width - 12);
+  menu.style.top = `${Math.max(12, top)}px`;
+  menu.style.left = `${left}px`;
+
+  requestAnimationFrame(() => {
+    const closeOnOutside = (event) => {
+      if (!menu.contains(event.target)) {
+        menu.remove();
+        document.removeEventListener('pointerdown', closeOnOutside);
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+  });
+}
+
 // タイトル行を押すとページ転換せずその場で内容を開く。中の内容欄はそのまま
-// 編集もできる(自動保存)。フルページでの編集はペンマーク経由。
+// 編集もできる(自動保存)。フルページでの編集は長押し/ペンマークのメニューから。
 function toggleInlineExpand(noteId) {
   state.expandedNoteId = state.expandedNoteId === noteId ? null : noteId;
   renderLibrary();
@@ -396,7 +489,8 @@ async function openEditor(noteId = null, seed = null) {
   }
   state.activeNoteId = note.id;
   els.titleInput.value = note.title;
-  els.tagsInput.value = note.tags.join(', ');
+  state.editingTags = new Set(normalizeTags(note.tags));
+  renderTagsPicker();
   els.contentInput.value = note.content;
   els.saveState.textContent = '保存済み';
   updateEditorButtons(note);
@@ -411,9 +505,105 @@ function syncInputsToNote() {
   if (!note) return null;
   note.title = els.titleInput.value;
   note.content = els.contentInput.value;
-  note.tags = normalizeTags(els.tagsInput.value.split(/[,、]/));
+  note.tags = normalizeTags([...state.editingTags]);
   note.updatedAt = Date.now();
   return note;
+}
+
+// 登録済みタグ(＋そのメモに既についている未登録タグ)をチップで表示し、
+// タップでON/OFFできるようにする。末尾に新規タグ作成チップを置く。
+function renderTagsPicker() {
+  const registryNames = state.tagRegistry.map((t) => t.name);
+  const extra = [...state.editingTags].filter(
+    (tag) => !registryNames.some((name) => name.toLocaleLowerCase() === tag.toLocaleLowerCase())
+  );
+  const allNames = [...registryNames, ...extra];
+  const colorMap = resolveTagColorMap(allNames);
+
+  els.tagsPicker.replaceChildren();
+  for (const name of allNames) {
+    const active = [...state.editingTags].some((tag) => tag.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = `tag-chip${active ? ' active' : ''}`;
+    chip.style.setProperty('--tag-color', colorMap[name]);
+    chip.textContent = name;
+    chip.addEventListener('click', () => {
+      if (active) {
+        for (const tag of [...state.editingTags]) {
+          if (tag.toLocaleLowerCase() === name.toLocaleLowerCase()) state.editingTags.delete(tag);
+        }
+      } else {
+        state.editingTags.add(name);
+      }
+      renderTagsPicker();
+      scheduleAutosave();
+    });
+    els.tagsPicker.append(chip);
+  }
+
+  const addChip = document.createElement('button');
+  addChip.type = 'button';
+  addChip.className = 'tag-chip tag-chip-add';
+  addChip.textContent = '＋ 新規タグ';
+  addChip.addEventListener('click', openTagCreator);
+  els.tagsPicker.append(addChip);
+}
+
+function openTagCreator() {
+  document.querySelectorAll('.tag-creator').forEach((el) => el.remove());
+
+  const panel = document.createElement('div');
+  panel.className = 'tag-creator';
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'tag-creator-name';
+  nameInput.placeholder = 'タグ名';
+  nameInput.maxLength = 24;
+
+  const swatchRow = document.createElement('div');
+  swatchRow.className = 'tag-creator-swatches';
+  let chosenColor = TAG_COLOR_SWATCHES[Math.floor(Math.random() * TAG_COLOR_SWATCHES.length)];
+  const swatchButtons = TAG_COLOR_SWATCHES.map((color) => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = `swatch${color === chosenColor ? ' selected' : ''}`;
+    sw.style.setProperty('--sw', color);
+    sw.addEventListener('click', () => {
+      chosenColor = color;
+      swatchButtons.forEach((b) => b.classList.remove('selected'));
+      sw.classList.add('selected');
+    });
+    swatchRow.append(sw);
+    return sw;
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'tag-creator-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'tt-skip';
+  cancelBtn.textContent = 'キャンセル';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.textContent = '追加';
+
+  cancelBtn.addEventListener('click', () => panel.remove());
+  saveBtn.addEventListener('click', async () => {
+    const [name] = normalizeTags([nameInput.value]);
+    if (!name) { panel.remove(); return; }
+    await upsertTagInRegistry(name, chosenColor);
+    state.editingTags.add(name);
+    panel.remove();
+    renderTagsPicker();
+    scheduleAutosave();
+  });
+
+  actions.append(cancelBtn, saveBtn);
+  panel.append(nameInput, swatchRow, actions);
+  els.tagsPicker.insertAdjacentElement('afterend', panel);
+  nameInput.focus();
 }
 
 async function saveActiveNote() {
@@ -686,11 +876,54 @@ function renderTrash() {
   }
 }
 
-async function openRandomNote() {
+// 隠し機能(チュートリアルでは触れない): タイトルだけ見せて「内容は？」と出題し、
+// 「答えを見る」で自分が書いた内容を確認できる、ランダム出題クイズ。
+function openQuizNote() {
   const candidates = state.notes.filter((note) => note.deletedAt == null);
   if (!candidates.length) return showToast('知識がまだありません');
   const note = candidates[Math.floor(Math.random() * candidates.length)];
-  await openEditor(note.id);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'quiz-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'quiz-card';
+
+  const label = document.createElement('div');
+  label.className = 'quiz-label';
+  label.textContent = 'このタイトルの内容は？';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'quiz-title';
+  titleEl.textContent = note.title.trim() || '無題';
+
+  const contentEl = document.createElement('div');
+  contentEl.className = 'quiz-content';
+  contentEl.hidden = true;
+  contentEl.textContent = note.content || '(内容なし)';
+
+  const actions = document.createElement('div');
+  actions.className = 'quiz-actions';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'secondary-btn';
+  closeBtn.textContent = '閉じる';
+  const revealBtn = document.createElement('button');
+  revealBtn.type = 'button';
+  revealBtn.className = 'primary-btn';
+  revealBtn.textContent = '答えを見る';
+
+  closeBtn.addEventListener('click', () => overlay.remove());
+  revealBtn.addEventListener('click', () => {
+    contentEl.hidden = false;
+    revealBtn.remove();
+  });
+
+  actions.append(closeBtn, revealBtn);
+  card.append(label, titleEl, contentEl, actions);
+  overlay.append(card);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) overlay.remove(); });
+  document.body.append(overlay);
 }
 
 function downloadJson(data) {
@@ -823,7 +1056,8 @@ function wireEvents() {
     renderLibrary();
   });
   els.addButton.addEventListener('click', () => openEditor());
-  els.quickCaptureButton.addEventListener('click', () => openQuickCapture());
+  // quickCaptureButton/clipboardButtonのUIは廃止(＋は右下のFABのみ)。
+  // クイック追加ダイアログ自体は共有(share target)からの受け口として残す。
   els.quickCancelButton.addEventListener('click', closeQuickCapture);
   els.quickSaveButton.addEventListener('click', saveQuickCapture);
   els.quickEditButton.addEventListener('click', editQuickCapture);
@@ -834,8 +1068,7 @@ function wireEvents() {
     event.preventDefault();
     closeQuickCapture();
   });
-  els.clipboardButton.addEventListener('click', createFromClipboard);
-  els.randomButton.addEventListener('click', openRandomNote);
+  els.quizButton.addEventListener('click', openQuizNote);
   els.trashButton.addEventListener('click', () => {
     renderTrash();
     showView('trash');
@@ -846,7 +1079,7 @@ function wireEvents() {
   els.appTitleInput.addEventListener('input', scheduleAppTitleSave);
   els.appTitleInput.addEventListener('blur', saveAppTitle);
 
-  for (const input of [els.titleInput, els.tagsInput, els.contentInput]) input.addEventListener('input', scheduleAutosave);
+  for (const input of [els.titleInput, els.contentInput]) input.addEventListener('input', scheduleAutosave);
 
   els.favoriteButton.addEventListener('click', () => toggleFlag('favorite'));
   els.pinButton.addEventListener('click', () => toggleFlag('pinned'));
@@ -937,6 +1170,20 @@ async function init() {
   if (proUnlockedSetting === null) {
     const activeCount = state.notes.filter((note) => note.deletedAt == null).length;
     await setSetting(PRO_UNLOCKED_KEY, activeCount > FREE_NOTE_LIMIT);
+  }
+
+  state.tagRegistry = await getSetting('tagRegistry', []);
+
+  // ゴミ箱に入って30日経ったメモは自動で完全削除する
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const expired = state.notes.filter((note) => note.deletedAt != null && now - note.deletedAt > THIRTY_DAYS_MS);
+  for (const note of expired) {
+    await deleteNotePermanently(note.id);
+  }
+  if (expired.length) {
+    const expiredIds = new Set(expired.map((note) => note.id));
+    state.notes = state.notes.filter((note) => !expiredIds.has(note.id));
   }
 
   wireEvents();
