@@ -42,6 +42,9 @@ const els = {
   trashButton: $('trashButton'),
   trashEmptyAllButton: $('trashEmptyAllButton'),
   settingsButton: $('settingsButton'),
+  accountButton: $('accountButton'),
+  accountAvatarPlaceholder: $('accountAvatarPlaceholder'),
+  accountAvatarImg: $('accountAvatarImg'),
   homeButton: $('homeButton'),
   appTitleInput: $('appTitleInput'),
   backButton: $('backButton'),
@@ -177,11 +180,12 @@ function collectAllTags() {
 function renderTagFilters(tagEntries, colorMap) {
   els.tagFilters.replaceChildren();
 
+  const allCount = state.notes.filter((note) => note.deletedAt == null).length;
   const allButton = document.createElement('button');
   allButton.type = 'button';
   allButton.className = `tag-chip${state.selectedTags.size === 0 ? ' active' : ''}`;
   allButton.style.setProperty('--tag-color', 'var(--muted)');
-  allButton.textContent = 'すべて';
+  allButton.textContent = `すべて ${allCount}`;
   allButton.addEventListener('click', () => {
     state.selectedTags.clear();
     renderLibrary();
@@ -1186,6 +1190,16 @@ function updateAuthUI(user) {
   if (signedIn) {
     els.accountEmail.textContent = user.email || user.displayName || 'ログイン済み';
   }
+
+  if (signedIn && user.photoURL) {
+    els.accountAvatarImg.src = user.photoURL;
+    els.accountAvatarImg.hidden = false;
+    els.accountAvatarPlaceholder.hidden = true;
+  } else {
+    els.accountAvatarImg.hidden = true;
+    els.accountAvatarImg.removeAttribute('src');
+    els.accountAvatarPlaceholder.hidden = false;
+  }
 }
 
 function updateSyncStatusUI(status) {
@@ -1322,10 +1336,12 @@ function wireEvents() {
     els.attachmentInput.value = '';
   });
 
-  els.settingsButton.addEventListener('click', () => {
+  const openSettingsDialog = () => {
     if (typeof els.settingsDialog.showModal === 'function') els.settingsDialog.showModal();
     else els.settingsDialog.setAttribute('open', '');
-  });
+  };
+  els.settingsButton.addEventListener('click', openSettingsDialog);
+  els.accountButton.addEventListener('click', openSettingsDialog);
   els.themeSelect.addEventListener('change', async () => {
     applyTheme(els.themeSelect.value);
     await setSetting('theme', els.themeSelect.value);
