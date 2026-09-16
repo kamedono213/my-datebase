@@ -54,8 +54,6 @@ const els = {
   deleteButton: $('deleteButton'),
   attachmentInput: $('attachmentInput'),
   attachmentList: $('attachmentList'),
-  relatedSelect: $('relatedSelect'),
-  relatedList: $('relatedList'),
   trashBackButton: $('trashBackButton'),
   trashList: $('trashList'),
   settingsDialog: $('settingsDialog'),
@@ -178,6 +176,18 @@ function collectAllTags() {
 
 function renderTagFilters(tagEntries, colorMap) {
   els.tagFilters.replaceChildren();
+
+  const allButton = document.createElement('button');
+  allButton.type = 'button';
+  allButton.className = `tag-chip${state.selectedTags.size === 0 ? ' active' : ''}`;
+  allButton.style.setProperty('--tag-color', 'var(--muted)');
+  allButton.textContent = 'すべて';
+  allButton.addEventListener('click', () => {
+    state.selectedTags.clear();
+    renderLibrary();
+  });
+  els.tagFilters.append(allButton);
+
   for (const [tag, count] of tagEntries) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -709,50 +719,6 @@ function renderAttachments(note) {
   }
 }
 
-function renderRelated(note) {
-  els.relatedSelect.replaceChildren();
-  const base = document.createElement('option');
-  base.value = '';
-  base.textContent = '関連メモを追加…';
-  els.relatedSelect.append(base);
-
-  const candidates = state.notes
-    .filter((item) => item.deletedAt == null && item.id !== note.id && !note.relatedIds.includes(item.id))
-    .sort((a, b) => a.title.localeCompare(b.title, 'ja'));
-  for (const item of candidates) {
-    const option = document.createElement('option');
-    option.value = item.id;
-    option.textContent = item.title || '無題';
-    els.relatedSelect.append(option);
-  }
-
-  els.relatedList.replaceChildren();
-  for (const id of note.relatedIds) {
-    const related = state.notes.find((item) => item.id === id && item.deletedAt == null);
-    if (!related) continue;
-    const pill = document.createElement('span');
-    pill.className = 'related-pill';
-    const open = document.createElement('button');
-    open.type = 'button';
-    open.textContent = related.title || '無題';
-    open.addEventListener('click', async () => {
-      await flushAutosave();
-      openEditor(related.id);
-    });
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = '×';
-    remove.setAttribute('aria-label', '関連を解除');
-    remove.addEventListener('click', () => {
-      note.relatedIds = note.relatedIds.filter((relatedId) => relatedId !== id);
-      scheduleAutosave();
-      renderRelated(note);
-    });
-    pill.append(open, remove);
-    els.relatedList.append(pill);
-  }
-}
-
 // 無料枠(10件)を超えて新規作成しようとしていないか確認する。
 // 既存メモを開く時(noteIdあり)は対象外。
 async function canCreateNewNote() {
@@ -785,7 +751,6 @@ async function openEditor(noteId = null, seed = null) {
   els.saveState.textContent = '保存済み';
   updateEditorButtons(note);
   renderAttachments(note);
-  renderRelated(note);
   showView('editor');
   requestAnimationFrame(() => (note.title ? els.contentInput : els.titleInput).focus());
 }
@@ -1355,15 +1320,6 @@ function wireEvents() {
   els.attachmentInput.addEventListener('change', async () => {
     await addAttachments([...els.attachmentInput.files]);
     els.attachmentInput.value = '';
-  });
-
-  els.relatedSelect.addEventListener('change', () => {
-    const note = currentNote();
-    if (!note || !els.relatedSelect.value) return;
-    if (!note.relatedIds.includes(els.relatedSelect.value)) note.relatedIds.push(els.relatedSelect.value);
-    els.relatedSelect.value = '';
-    renderRelated(note);
-    scheduleAutosave();
   });
 
   els.settingsButton.addEventListener('click', () => {
