@@ -8,20 +8,36 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.PixelFormat;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import androidx.core.content.ContextCompat;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -35,6 +51,8 @@ public class OverlayBubbleService extends Service {
     private static final int NOTIFICATION_ID = 1001;
     private static final int TAP_MOVE_THRESHOLD_PX = 18;
 
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private WindowManager windowManager;
 
     private View bubbleView;
@@ -47,6 +65,13 @@ public class OverlayBubbleService extends Service {
 
     private WebView bridgeWebView;
     private boolean bridgeReady = false;
+    private Runnable pendingBridgeAction;
+
+    private int nextRequestId = 1;
+    private final Map<Integer, java.util.function.Consumer<Boolean>> pendingSaveCallbacks = new HashMap<>();
+
+    private SpeechRecognizer speechRecognizer;
+    private EditText activeInputForSpeech;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -81,6 +106,9 @@ public class OverlayBubbleService extends Service {
         if (bridgeWebView != null) {
             bridgeWebView.destroy();
         }
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
     }
 
     // ---- 通知(フォアグラウンドサービスに必須) ----
@@ -102,7 +130,7 @@ public class OverlayBubbleService extends Service {
             : new Notification.Builder(this);
 
         return builder
-            .setContentTitle("知識データベース")
+            .setContentTitle("ピックノート")
             .setContentText("常駐メモアイコンが有効です")
             .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setOngoing(true)
@@ -111,11 +139,39 @@ public class OverlayBubbleService extends Service {
 
     // ---- 保存用の隠しWebView ----
 
+    /**
+     * JS側(overlaybridge.html)からの結果報告を受け取る窓口。
+     * evaluateJavascriptの戻り値は__overlaySaveがasync関数である以上あてにならない
+     * (Promiseは同期的な戻り値としては捕捉できずnullになる)ため、
+     * 実際の保存完了・失敗はこちらのJavascriptInterface経由で明示的に受け取る。
+     */
+    private class JsBridge {
+        @JavascriptInterface
+        public void onSaveResult(int requestId, boolean ok, String message) {
+            mainHandler.post(() -> {
+                java.util.function.Consumer<Boolean> callback = pendingSaveCallbacks.remove(requestId);
+                if (callback != null) callback.accept(ok);
+            });
+        }
+    }
+
     private void setupBridgeWebView() {
         bridgeWebView = new WebView(this);
         bridgeWebView.getSettings().setJavaScriptEnabled(true);
         bridgeWebView.getSettings().setDomStorageEnabled(true);
         bridgeWebView.getSettings().setDatabaseEnabled(true);
+        bridgeWebView.addJavascriptInterface(new JsBridge(), "AndroidBridge");
+        bridgeWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                bridgeReady = true;
+                if (pendingBridgeAction != null) {
+                    Runnable action = pendingBridgeAction;
+                    pendingBridgeAction = null;
+                    action.run();
+                }
+            }
+        });
         bridgeWebView.loadUrl("file:///android_asset/public/overlaybridge.html");
 
         // 画面には映さないが、WebViewが正しく動くにはウィンドウに追加されている必要がある
@@ -134,11 +190,35 @@ public class OverlayBubbleService extends Service {
         }
     }
 
-    private void saveNote(String title, String content, Runnable onDone) {
-        String js = "window.__overlaySave && window.__overlaySave(" + JSONObject.quote(title) + "," + JSONObject.quote(content) + ")";
-        bridgeWebView.evaluateJavascript(js, value -> {
-            if (onDone != null) onDone.run();
-        });
+    /**
+     * ブリッジの読み込みが終わっていなければ、終わるまで保存要求を1件だけ保留する
+     * (連打された場合は最後の1件が勝つ想定で十分)。
+     */
+    private void saveNote(String title, String content, List<String> tags, java.util.function.Consumer<Boolean> onDone) {
+        int requestId = nextRequestId++;
+        pendingSaveCallbacks.put(requestId, onDone);
+
+        Runnable attempt = () -> {
+            JSONArray tagsArray = new JSONArray();
+            for (String t : tags) tagsArray.put(t);
+            String js = "window.__overlaySave(" + requestId + ","
+                + JSONObject.quote(title) + ","
+                + JSONObject.quote(content) + ","
+                + tagsArray.toString() + ")";
+            bridgeWebView.evaluateJavascript(js, null);
+        };
+
+        if (bridgeReady) {
+            attempt.run();
+        } else {
+            pendingBridgeAction = attempt;
+        }
+
+        // ブリッジ自体が権限問題などで永久に準備できない場合に、無反応のままにしないための保険。
+        mainHandler.postDelayed(() -> {
+            java.util.function.Consumer<Boolean> stillPending = pendingSaveCallbacks.remove(requestId);
+            if (stillPending != null) stillPending.accept(false);
+        }, 8000);
     }
 
     private int overlayType() {
@@ -228,23 +308,42 @@ public class OverlayBubbleService extends Service {
         cardView = LayoutInflater.from(this).inflate(R.layout.overlay_quickadd, null);
         EditText titleInput = cardView.findViewById(R.id.overlayTitleInput);
         EditText contentInput = cardView.findViewById(R.id.overlayContentInput);
+        EditText tagsInput = cardView.findViewById(R.id.overlayTagsInput);
         TextView statusText = cardView.findViewById(R.id.overlayStatusText);
         TextView cancelButton = cardView.findViewById(R.id.overlayCancelButton);
         TextView saveButton = cardView.findViewById(R.id.overlaySaveButton);
+        TextView micButton = cardView.findViewById(R.id.overlayMicButton);
+
+        // マイクボタンが無い時に最後にフォーカスしていた欄へ差し込めるよう、フォーカス監視だけ入れておく。
+        View.OnFocusChangeListener trackFocus = (v, hasFocus) -> {
+            if (hasFocus) activeInputForSpeech = (EditText) v;
+        };
+        titleInput.setOnFocusChangeListener(trackFocus);
+        contentInput.setOnFocusChangeListener(trackFocus);
+        activeInputForSpeech = contentInput;
 
         cancelButton.setOnClickListener(v -> collapseCard());
+
+        micButton.setOnClickListener(v -> toggleSpeechInput(statusText));
 
         saveButton.setOnClickListener(v -> {
             String title = titleInput.getText().toString().trim();
             String content = contentInput.getText().toString().trim();
+            List<String> tags = parseTags(tagsInput.getText().toString());
             if (title.isEmpty() && content.isEmpty()) {
                 collapseCard();
                 return;
             }
             statusText.setText("保存中...");
-            saveNote(title, content, () -> {
-                statusText.setText("保存しました");
-                cardView.postDelayed(this::collapseCard, 350);
+            saveButton.setEnabled(false);
+            saveNote(title, content, tags, ok -> {
+                saveButton.setEnabled(true);
+                if (ok) {
+                    statusText.setText("保存しました");
+                    cardView.postDelayed(this::collapseCard, 350);
+                } else {
+                    statusText.setText("保存に失敗しました。もう一度お試しください");
+                }
             });
         });
 
@@ -267,6 +366,94 @@ public class OverlayBubbleService extends Service {
         cardAdded = true;
         titleInput.requestFocus();
         prefillFromClipboard(contentInput);
+    }
+
+    private List<String> parseTags(String raw) {
+        List<String> tags = new ArrayList<>();
+        if (raw == null) return tags;
+        for (String part : raw.split("[,、]")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) tags.add(trimmed);
+        }
+        return tags;
+    }
+
+    // ---- 音声入力(マイクボタン) ----
+
+    private boolean hasMicPermission() {
+        return ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void toggleSpeechInput(TextView statusText) {
+        if (!hasMicPermission()) {
+            statusText.setText("マイクの許可が必要です（アプリの設定から許可してください）");
+            return;
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            statusText.setText("この端末では音声入力を利用できません");
+            return;
+        }
+        if (speechRecognizer != null) {
+            // 二重起動を防ぐため、既に聞き取り中なら一旦止める
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+            statusText.setText("");
+            return;
+        }
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        Intent recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.JAPAN.toString());
+        recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) { statusText.setText("聞き取り中...話しかけてください"); }
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float rmsdB) {}
+            @Override public void onBufferReceived(byte[] buffer) {}
+            @Override public void onEndOfSpeech() { statusText.setText("認識中..."); }
+
+            @Override
+            public void onError(int error) {
+                statusText.setText("聞き取れませんでした。もう一度お試しください");
+                cleanupRecognizer();
+            }
+
+            @Override
+            public void onResults(Bundle results) {
+                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (matches != null && !matches.isEmpty()) {
+                    insertRecognizedText(matches.get(0));
+                }
+                statusText.setText("");
+                cleanupRecognizer();
+            }
+
+            @Override public void onPartialResults(Bundle partialResults) {}
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
+
+        speechRecognizer.startListening(recognizerIntent);
+    }
+
+    private void insertRecognizedText(String text) {
+        if (activeInputForSpeech == null || text == null || text.isEmpty()) return;
+        EditText target = activeInputForSpeech;
+        int start = Math.max(0, target.getSelectionStart());
+        CharSequence existing = target.getText();
+        String before = existing.subSequence(0, Math.min(start, existing.length())).toString();
+        String after = existing.subSequence(Math.min(start, existing.length()), existing.length()).toString();
+        target.setText(before + text + after);
+        target.setSelection((before + text).length());
+    }
+
+    private void cleanupRecognizer() {
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
     }
 
     /**
@@ -307,6 +494,7 @@ public class OverlayBubbleService extends Service {
     }
 
     private void collapseCard() {
+        cleanupRecognizer();
         if (cardAdded && cardView != null) {
             try {
                 windowManager.removeView(cardView);
