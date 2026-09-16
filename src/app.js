@@ -506,6 +506,14 @@ function closeBulkTagDialog() {
   els.bulkTagDialog.hidden = true;
 }
 
+function tagChipCheck() {
+  const check = document.createElement('span');
+  check.className = 'tag-chip-check';
+  check.setAttribute('aria-hidden', 'true');
+  check.textContent = '✓';
+  return check;
+}
+
 function renderBulkTagPicker() {
   const registryNames = state.tagRegistry.map((t) => t.name);
   const usedNames = state.notes.flatMap((note) => note.tags || []);
@@ -526,7 +534,7 @@ function renderBulkTagPicker() {
     chip.type = 'button';
     chip.className = `tag-chip${active ? ' active' : ''}`;
     chip.style.setProperty('--tag-color', colorMap[name]);
-    chip.textContent = name;
+    chip.append(tagChipCheck(), document.createTextNode(name));
     chip.addEventListener('click', () => {
       if (state.bulkTagPicks.has(name)) state.bulkTagPicks.delete(name);
       else state.bulkTagPicks.add(name);
@@ -793,7 +801,17 @@ function renderTagsPicker() {
   const usedNames = state.notes.flatMap((note) => note.tags || []);
   const seen = new Set(registryNames.map((name) => name.toLocaleLowerCase()));
   const extra = [];
-  for (const tag of [...state.editingTags, ...usedNames]) {
+  // 登録済み・既存メモ使用済みのタグで並び順を固定する。
+  // (以前はeditingTagsを先頭で展開していたため、選択/解除するたびに
+  // 表示順が入れ替わり分かりにくかった)
+  for (const tag of usedNames) {
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    extra.push(tag);
+  }
+  // 登録済みにも既存メモにもまだ無い、今回新規作成したばかりのタグだけ末尾に追加。
+  for (const tag of state.editingTags) {
     const key = tag.toLocaleLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -809,7 +827,7 @@ function renderTagsPicker() {
     chip.type = 'button';
     chip.className = `tag-chip${active ? ' active' : ''}`;
     chip.style.setProperty('--tag-color', colorMap[name]);
-    chip.textContent = name;
+    chip.append(tagChipCheck(), document.createTextNode(name));
     chip.addEventListener('click', () => {
       if (active) {
         for (const tag of [...state.editingTags]) {
