@@ -138,6 +138,49 @@ button { cursor: pointer; }
 }
 .note-edit-btn:active { opacity: 1; }
 
+/* スワイプ削除: .note-swipe-wrapが土台、.note-swipe-bgが下地(ゴミ箱)、
+   .note-title-rowが上に乗って左にドラッグされる。 */
+.note-swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; }
+.note-swipe-bg {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end;
+  background: var(--danger); color: #fff; padding-right: 20px; font-size: 1.15rem; border-radius: 10px;
+}
+.note-title-row { position: relative; background: var(--surface); border-radius: 10px; touch-action: pan-y; }
+.note-title-row.swiping { transition: none; }
+.note-title-row:not(.swiping) { transition: transform .18s ease; }
+
+.note-card.selection-mode .note-title-row { padding-left: 30px; }
+.note-select-dot {
+  position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--line);
+  background: var(--surface); display: none; align-items: center; justify-content: center;
+  font-size: .7rem; color: #fff;
+}
+.note-card.selection-mode .note-select-dot { display: flex; }
+.note-card.selected .note-select-dot { background: var(--accent, var(--text)); border-color: var(--accent, var(--text)); }
+.note-card.selected { box-shadow: 0 0 0 2px var(--accent, var(--text)) inset; }
+
+.selection-bar {
+  position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 13; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 10px 12px 10px 16px; box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.selection-bar[hidden] { display: none; }
+.selection-actions { display: flex; align-items: center; gap: 8px; }
+.selection-actions .secondary-btn, .selection-actions .danger-btn { min-height: 38px; padding: 8px 14px; }
+
+.bulk-tag-dialog {
+  position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.35);
+  display: flex; align-items: flex-end;
+}
+.bulk-tag-dialog[hidden] { display: none; }
+.bulk-tag-sheet {
+  width: 100%; background: var(--surface); border-radius: 18px 18px 0 0; padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 12px;
+}
+.bulk-tag-header { display: flex; align-items: center; justify-content: space-between; }
+
 .note-inline-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s ease; }
 .note-inline-wrap.open { grid-template-rows: 1fr; }
 .note-inline-panel { overflow: hidden; min-height: 0; }

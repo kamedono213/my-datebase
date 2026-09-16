@@ -74,6 +74,16 @@ const els = {
   accountEmail: $('accountEmail'),
   syncStatusText: $('syncStatusText'),
   signOutButton: $('signOutButton'),
+  selectionBar: $('selectionBar'),
+  selectionCount: $('selectionCount'),
+  selectionTagButton: $('selectionTagButton'),
+  selectionDeleteButton: $('selectionDeleteButton'),
+  selectionCancelButton: $('selectionCancelButton'),
+  bulkTagDialog: $('bulkTagDialog'),
+  bulkTagTargetCount: $('bulkTagTargetCount'),
+  bulkTagPicker: $('bulkTagPicker'),
+  bulkTagCloseButton: $('bulkTagCloseButton'),
+  bulkTagApplyButton: $('bulkTagApplyButton'),
 };
 
 const state = {
@@ -82,6 +92,9 @@ const state = {
   expandedNoteId: null,
   selectedTags: new Set(),
   editingTags: new Set(),
+  selectionMode: false,
+  selectedNoteIds: new Set(),
+  bulkTagPicks: new Set(),
   tagRegistry: [], // [{ name, color }] 作成時に色を選べるタグの一覧
   query: '',
   sort: 'updated',
@@ -193,6 +206,7 @@ function renderTagFilters(tagEntries, colorMap) {
 }
 
 function renderLibrary() {
+  updateSelectionBar();
   const tagEntries = collectAllTags();
   const tagOrder = tagEntries.map(([tag]) => tag);
   const colorMap = resolveTagColorMap(tagOrder);
@@ -220,35 +234,29 @@ function renderLibrary() {
   for (const note of notes) {
     const card = document.createElement('article');
     card.className = 'note-card';
+    if (state.selectionMode) card.classList.add('selection-mode');
+    if (state.selectedNoteIds.has(note.id)) card.classList.add('selected');
+
+    const swipeWrap = document.createElement('div');
+    swipeWrap.className = 'note-swipe-wrap';
+
+    const swipeBg = document.createElement('div');
+    swipeBg.className = 'note-swipe-bg';
+    swipeBg.innerHTML = '<span aria-hidden="true">🗑</span>';
+    swipeWrap.append(swipeBg);
 
     const row = document.createElement('div');
     row.className = 'note-title-row';
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
 
-    let longPressTimer = null;
-    let longPressTriggered = false;
-    row.addEventListener('pointerdown', () => {
-      longPressTriggered = false;
-      longPressTimer = setTimeout(() => {
-        longPressTriggered = true;
-        openRowMenu(note, row);
-      }, 500);
-    });
-    const cancelLongPress = () => clearTimeout(longPressTimer);
-    row.addEventListener('pointerup', cancelLongPress);
-    row.addEventListener('pointerleave', cancelLongPress);
-    row.addEventListener('pointercancel', cancelLongPress);
-    row.addEventListener('click', () => {
-      if (longPressTriggered) return;
-      toggleInlineExpand(note.id);
-    });
-    row.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        toggleInlineExpand(note.id);
-      }
-    });
+    const selectDot = document.createElement('span');
+    selectDot.className = 'note-select-dot';
+    selectDot.setAttribute('aria-hidden', 'true');
+    selectDot.textContent = state.selectedNoteIds.has(note.id) ? '✓' : '';
+    row.append(selectDot);
+
+    attachRowGestures(row, note);
 
     const primaryTag = note.tags?.[0];
     if (primaryTag) {
@@ -273,11 +281,13 @@ function renderLibrary() {
     editBtn.textContent = '✏️';
     editBtn.addEventListener('click', (event) => {
       event.stopPropagation();
+      if (state.selectionMode) return;
       openRowMenu(note, editBtn);
     });
     row.append(editBtn);
 
-    card.append(row);
+    swipeWrap.append(row);
+    card.append(swipeWrap);
     card.append(buildInlinePanel(note));
     els.noteList.append(card);
 
@@ -286,6 +296,254 @@ function renderLibrary() {
       requestAnimationFrame(() => wrap.classList.add('open'));
     }
   }
+}
+
+const SWIPE_REVEAL_PX = 84; // スワイプで止まる位置(ゴミ箱が見える所まで)
+const SWIPE_DELETE_PX = 150; // ここを超えて離すと即削除
+
+// タイトル行のジェスチャーをまとめて設定する:
+// ・軽くタップ → 展開(または選択モード中はON/OFF切り替え)
+// ・長押し(500ms) → 複数選択モードに入る
+// ・左スワイプ → ゴミ箱を出す。さらに引くと削除
+function attachRowGestures(row, note) {
+  let longPressTimer = null;
+  let longPressTriggered = false;
+  let dragging = false;
+  let swiping = false;
+  let startX = 0;
+  let startY = 0;
+  let currentX = 0;
+  let restingX = 0; // 前回スワイプで止まった位置(0 or -SWIPE_REVEAL_PX)
+
+  function setTranslate(x, animated) {
+    row.classList.toggle('swiping', !animated);
+    row.style.transform = x ? `translateX(${x}px)` : '';
+  }
+
+  function cancelLongPress() {
+    clearTimeout(longPressTimer);
+  }
+
+  row.addEventListener('pointerdown', (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    startX = event.clientX;
+    startY = event.clientY;
+    currentX = restingX;
+    dragging = false;
+    swiping = false;
+    longPressTriggered = false;
+    cancelLongPress();
+    longPressTimer = setTimeout(() => {
+      if (dragging) return; // スワイプ中なら長押し扱いにしない
+      longPressTriggered = true;
+      if (navigator.vibrate) navigator.vibrate(12);
+      enterSelectionMode(note.id);
+    }, 500);
+  });
+
+  row.addEventListener('pointermove', (event) => {
+    if (state.selectionMode) return; // 選択モード中はスワイプ削除を無効化
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    if (!dragging) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dy) > Math.abs(dx)) return; // 縦スクロール優先、スワイプ扱いにしない
+      dragging = true;
+      swiping = true;
+      cancelLongPress();
+      row.setPointerCapture?.(event.pointerId);
+    }
+    if (!swiping) return;
+    event.preventDefault();
+    const raw = restingX + dx;
+    currentX = Math.max(Math.min(raw, 0), -SWIPE_DELETE_PX - 40);
+    setTranslate(currentX, false);
+  });
+
+  async function endSwipe() {
+    if (currentX <= -SWIPE_DELETE_PX) {
+      setTranslate(-400, true);
+      note.deletedAt = Date.now();
+      note.updatedAt = Date.now();
+      await putNote(note);
+      showToast('ゴミ箱へ移動しました');
+      setTimeout(renderLibrary, 160);
+      return;
+    }
+    if (currentX <= -SWIPE_REVEAL_PX / 2) {
+      restingX = -SWIPE_REVEAL_PX;
+    } else {
+      restingX = 0;
+    }
+    setTranslate(restingX, true);
+  }
+
+  row.addEventListener('pointerup', (event) => {
+    cancelLongPress();
+    if (swiping) {
+      row.releasePointerCapture?.(event.pointerId);
+      endSwipe();
+      swiping = false;
+      dragging = false;
+      return;
+    }
+    dragging = false;
+    if (longPressTriggered) return;
+    if (restingX !== 0) {
+      // ゴミ箱が見えている状態でのタップ → そのタップで削除確定
+      endSwipeTapToDelete();
+      return;
+    }
+    if (state.selectionMode) {
+      toggleNoteSelection(note.id);
+    } else {
+      toggleInlineExpand(note.id);
+    }
+  });
+
+  async function endSwipeTapToDelete() {
+    setTranslate(-400, true);
+    note.deletedAt = Date.now();
+    note.updatedAt = Date.now();
+    await putNote(note);
+    showToast('ゴミ箱へ移動しました');
+    setTimeout(renderLibrary, 160);
+  }
+
+  row.addEventListener('pointerleave', () => {
+    cancelLongPress();
+  });
+  row.addEventListener('pointercancel', () => {
+    cancelLongPress();
+    dragging = false;
+    swiping = false;
+    setTranslate(restingX, true);
+  });
+  row.addEventListener('click', (event) => {
+    // pointerup側で処理済みなので、合成clickでの二重発火(展開/選択の連打)だけ防ぐ。
+    if (swiping || longPressTriggered) event.preventDefault();
+  });
+  row.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (state.selectionMode) toggleNoteSelection(note.id);
+      else toggleInlineExpand(note.id);
+    }
+  });
+}
+
+// ---- 複数選択モード ----
+
+function enterSelectionMode(firstNoteId) {
+  state.selectionMode = true;
+  state.selectedNoteIds = new Set([firstNoteId]);
+  renderLibrary();
+}
+
+function toggleNoteSelection(noteId) {
+  if (state.selectedNoteIds.has(noteId)) state.selectedNoteIds.delete(noteId);
+  else state.selectedNoteIds.add(noteId);
+  if (state.selectedNoteIds.size === 0) {
+    exitSelectionMode();
+    return;
+  }
+  renderLibrary();
+}
+
+function exitSelectionMode() {
+  state.selectionMode = false;
+  state.selectedNoteIds = new Set();
+  renderLibrary();
+}
+
+function updateSelectionBar() {
+  const count = state.selectedNoteIds.size;
+  els.selectionBar.hidden = !state.selectionMode;
+  els.selectionCount.textContent = `${count}件選択中`;
+}
+
+async function bulkDeleteSelected() {
+  const ids = [...state.selectedNoteIds];
+  if (ids.length === 0) return;
+  if (!confirm(`選択した${ids.length}件をゴミ箱へ移動しますか？`)) return;
+  const now = Date.now();
+  for (const id of ids) {
+    const note = state.notes.find((n) => n.id === id);
+    if (!note) continue;
+    note.deletedAt = now;
+    note.updatedAt = now;
+    await putNote(note);
+  }
+  showToast(`${ids.length}件をゴミ箱へ移動しました`);
+  exitSelectionMode();
+}
+
+function openBulkTagDialog() {
+  if (state.selectedNoteIds.size === 0) return;
+  state.bulkTagPicks = new Set();
+  els.bulkTagTargetCount.textContent = String(state.selectedNoteIds.size);
+  renderBulkTagPicker();
+  els.bulkTagDialog.hidden = false;
+}
+
+function closeBulkTagDialog() {
+  els.bulkTagDialog.hidden = true;
+}
+
+function renderBulkTagPicker() {
+  const registryNames = state.tagRegistry.map((t) => t.name);
+  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  const seen = new Set(registryNames.map((n) => n.toLocaleLowerCase()));
+  const names = [...registryNames];
+  for (const tag of usedNames) {
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(tag);
+  }
+  const colorMap = resolveTagColorMap(names);
+
+  els.bulkTagPicker.replaceChildren();
+  for (const name of names) {
+    const active = state.bulkTagPicks.has(name);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = `tag-chip${active ? ' active' : ''}`;
+    chip.style.setProperty('--tag-color', colorMap[name]);
+    chip.textContent = name;
+    chip.addEventListener('click', () => {
+      if (state.bulkTagPicks.has(name)) state.bulkTagPicks.delete(name);
+      else state.bulkTagPicks.add(name);
+      renderBulkTagPicker();
+    });
+    els.bulkTagPicker.append(chip);
+  }
+  if (names.length === 0) {
+    const hint = document.createElement('span');
+    hint.className = 'muted';
+    hint.textContent = 'まだタグがありません。メモの編集画面で新規タグを作ってください。';
+    els.bulkTagPicker.append(hint);
+  }
+}
+
+async function applyBulkTags() {
+  const picks = [...state.bulkTagPicks];
+  if (picks.length === 0) {
+    closeBulkTagDialog();
+    return;
+  }
+  const ids = [...state.selectedNoteIds];
+  for (const id of ids) {
+    const note = state.notes.find((n) => n.id === id);
+    if (!note) continue;
+    const merged = new Set([...(note.tags || []), ...picks]);
+    note.tags = normalizeTags([...merged]);
+    note.updatedAt = Date.now();
+    await putNote(note);
+  }
+  showToast(`${ids.length}件にタグを追加しました`);
+  closeBulkTagDialog();
+  exitSelectionMode();
 }
 
 // タイトルの長押し、またはペンマークのタップで出す「編集/削除」メニュー。
@@ -1159,6 +1417,15 @@ function wireEvents() {
   els.signOutButton.addEventListener('click', async () => {
     await signOutCloud();
     showToast('ログアウトしました');
+  });
+
+  els.selectionCancelButton.addEventListener('click', exitSelectionMode);
+  els.selectionDeleteButton.addEventListener('click', bulkDeleteSelected);
+  els.selectionTagButton.addEventListener('click', openBulkTagDialog);
+  els.bulkTagCloseButton.addEventListener('click', closeBulkTagDialog);
+  els.bulkTagApplyButton.addEventListener('click', applyBulkTags);
+  els.bulkTagDialog.addEventListener('click', (event) => {
+    if (event.target === els.bulkTagDialog) closeBulkTagDialog();
   });
 
   document.addEventListener('visibilitychange', () => {

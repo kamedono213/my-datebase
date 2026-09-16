@@ -59,6 +59,26 @@
       </div>
 
       <button id="addButton" class="fab" type="button" aria-label="新規作成">＋</button>
+
+      <div id="selectionBar" class="selection-bar" hidden>
+        <span id="selectionCount">0件選択中</span>
+        <div class="selection-actions">
+          <button id="selectionTagButton" class="secondary-btn" type="button">タグ追加</button>
+          <button id="selectionDeleteButton" class="danger-btn" type="button">削除</button>
+          <button id="selectionCancelButton" class="icon-btn" type="button" aria-label="選択解除">×</button>
+        </div>
+      </div>
+
+      <div id="bulkTagDialog" class="bulk-tag-dialog" hidden>
+        <div class="bulk-tag-sheet">
+          <div class="bulk-tag-header">
+            <strong>選択した<span id="bulkTagTargetCount">0</span>件にタグを追加</strong>
+            <button id="bulkTagCloseButton" class="icon-btn" type="button" aria-label="閉じる">×</button>
+          </div>
+          <div id="bulkTagPicker" class="tag-strip tags-picker"></div>
+          <button id="bulkTagApplyButton" class="primary-btn" type="button">適用</button>
+        </div>
+      </div>
     </main>
 
     <section id="editorView" class="view editor-view" hidden aria-label="知識を編集">
