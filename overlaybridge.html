@@ -6,14 +6,24 @@
   import { putNote } from './src/db.js';
   // OverlayBubbleServiceの隠しWebViewから evaluateJavascript で呼ばれる保存関数。
   // 通常のUIは持たない、ネイティブのオーバーレイUIから既存のIndexedDBへ橋渡しするだけの役目。
-  window.__overlaySave = async (title, content) => {
-    try {
-      if (!title && !content) return 'skip';
-      await putNote({ title, content, tags: [] });
-      return 'ok';
-    } catch (e) {
-      return 'error:' + (e && e.message ? e.message : String(e));
-    }
+  //
+  // 注意: __overlaySaveはasync関数なので、evaluateJavascriptの戻り値（同期的な返り値）は
+  // 実際の保存完了を意味しない（PromiseはJSON化できずnullになる）。そのため結果は
+  // AndroidBridge.onSaveResult(requestId, ok, message) でJava側へ明示的に報告する。
+  window.__overlaySave = (requestId, title, content, tags) => {
+    (async () => {
+      try {
+        if (!title && !content) {
+          window.AndroidBridge?.onSaveResult(requestId, false, 'empty');
+          return;
+        }
+        const tagList = Array.isArray(tags) ? tags : [];
+        await putNote({ title, content, tags: tagList });
+        window.AndroidBridge?.onSaveResult(requestId, true, 'ok');
+      } catch (e) {
+        window.AndroidBridge?.onSaveResult(requestId, false, (e && e.message) ? e.message : String(e));
+      }
+    })();
   };
   window.__overlayReady = true;
 </script>

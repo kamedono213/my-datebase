@@ -1,5 +1,6 @@
 package com.kamedono.mydatabase;
 
+import android.Manifest;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -9,11 +10,19 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 /**
  * Web側（app.js等）から常駐アイコンのON/OFF・権限確認を行うためのブリッジ。
+ * マイク権限（オーバーレイ内の音声入力ボタン用）もここで扱う。
  */
-@CapacitorPlugin(name = "OverlayBubble")
+@CapacitorPlugin(
+    name = "OverlayBubble",
+    permissions = {
+        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
+    }
+)
 public class OverlayPlugin extends Plugin {
 
     @PluginMethod
@@ -42,6 +51,31 @@ public class OverlayPlugin extends Plugin {
         // 設定画面から戻ってきた後の結果はJS側でcheckPermissionを呼び直して確認する想定
         JSObject result = new JSObject();
         result.put("granted", hasOverlayPermission());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void checkMicPermission(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", getPermissionState("microphone") == com.getcapacitor.PermissionState.GRANTED);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestMicPermission(PluginCall call) {
+        if (getPermissionState("microphone") == com.getcapacitor.PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("granted", true);
+            call.resolve(result);
+            return;
+        }
+        requestPermissionForAlias("microphone", call, "micPermissionCallback");
+    }
+
+    @PermissionCallback
+    private void micPermissionCallback(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", getPermissionState("microphone") == com.getcapacitor.PermissionState.GRANTED);
         call.resolve(result);
     }
 

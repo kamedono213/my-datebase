@@ -246,6 +246,13 @@
           }
           await OverlayBubble.startBubble();
           enabled = true;
+          // オーバーレイ内のマイクボタン用。拒否されてもオーバーレイ自体は使えるようにする(ブロックしない)。
+          try {
+            const mic = await OverlayBubble.checkMicPermission();
+            if (!mic.granted) await OverlayBubble.requestMicPermission();
+          } catch {
+            // マイク権限まわりで失敗しても常駐アイコン自体は動かす
+          }
         } else {
           await OverlayBubble.stopBubble();
           enabled = false;
