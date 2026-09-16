@@ -3,7 +3,7 @@
 <head><meta charset="utf-8"><title>overlay bridge</title></head>
 <body>
 <script type="module">
-  import { putNote, getSetting } from './src/db.js';
+  import { putNote, getSetting, listNotes } from './src/db.js';
   // OverlayBubbleServiceの隠しWebViewから evaluateJavascript で呼ばれる保存関数。
   // 通常のUIは持たない、ネイティブのオーバーレイUIから既存のIndexedDBへ橋渡しするだけの役目。
   //
@@ -31,12 +31,23 @@
     })();
   };
 
-  // タグ候補(タグ管理画面で作った既存タグ)をネイティブ側のチップ表示用に返す。
+  // タグ候補を返す。タグ作成ダイアログ経由の登録済みタグ(tagRegistry)だけでなく、
+  // 既存メモに実際に付いているタグ全部を候補にする(自由入力時代のタグも拾うため)。
   window.__overlayGetTags = (requestId) => {
     (async () => {
       try {
         const registry = await getSetting('tagRegistry', []);
-        const names = Array.isArray(registry) ? registry.map((t) => t && t.name).filter(Boolean) : [];
+        const registryNames = Array.isArray(registry) ? registry.map((t) => t && t.name).filter(Boolean) : [];
+        const notes = await listNotes();
+        const usedNames = notes.flatMap((n) => (Array.isArray(n.tags) ? n.tags : []));
+        const seen = new Set(registryNames.map((n) => n.toLocaleLowerCase()));
+        const names = [...registryNames];
+        for (const tag of usedNames) {
+          const key = tag.toLocaleLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          names.push(tag);
+        }
         window.AndroidBridge?.onTagsResult(requestId, JSON.stringify(names));
       } catch (e) {
         window.AndroidBridge?.onTagsResult(requestId, '[]');
