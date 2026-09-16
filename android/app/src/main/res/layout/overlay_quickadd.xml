@@ -40,11 +40,23 @@
         android:textColor="#1c1c1c"
         android:textSize="14sp" />
 
+    <HorizontalScrollView
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:scrollbars="none">
+        <LinearLayout
+            android:id="@+id/overlayTagChips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
     <EditText
         android:id="@+id/overlayTagsInput"
         android:layout_width="260dp"
         android:layout_height="wrap_content"
-        android:hint="タグ（カンマ区切り）"
+        android:hint="タグ（カンマ区切り、上の候補をタップでも可）"
         android:inputType="text"
         android:maxLines="1"
         android:background="@android:color/transparent"
