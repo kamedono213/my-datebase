@@ -192,6 +192,8 @@ button { cursor: pointer; }
 .note-inline-wrap.open { grid-template-rows: 1fr; }
 .note-inline-panel { overflow: hidden; min-height: 0; }
 .note-inline-inner { padding-top: 10px; }
+.note-inline-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.note-inline-images img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; }
 .note-inline-content {
   width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
   padding: 10px; font: inherit; font-size: .92rem; color: var(--text); resize: none; outline: 0;
@@ -219,8 +221,7 @@ button { cursor: pointer; }
 .title-input, .tags-input, .content-input { display: block; width: 100%; border: 0; outline: 0; background: transparent; }
 .title-input { font-weight: 850; font-size: 1.8rem; letter-spacing: -.035em; padding: 8px 0; }
 .tags-input { color: var(--accent); padding: 7px 0 14px; border-bottom: 1px solid var(--line); }
-.format-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 4px; }
-.format-toolbar button, .small-btn { border: 1px solid var(--line); border-radius: 9px; background: var(--bg); padding: 7px 9px; font-size: .78rem; }
+.small-btn { border: 1px solid var(--line); border-radius: 9px; background: var(--bg); padding: 7px 9px; font-size: .78rem; }
 .content-input { min-height: 46dvh; resize: vertical; padding: 16px 0; font-size: 1rem; line-height: 1.75; }
 .editor-section { border-top: 1px solid var(--line); padding: 18px 0; }
 .editor-section h2 { margin: 0 0 10px; font-size: .92rem; }

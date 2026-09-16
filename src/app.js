@@ -1,5 +1,4 @@
 import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
-import { summarize } from './summarize.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
@@ -52,11 +51,6 @@ const els = {
   titleInput: $('titleInput'),
   tagsPicker: $('tagsPicker'),
   contentInput: $('contentInput'),
-  copyTitleButton: $('copyTitleButton'),
-  copyBodyButton: $('copyBodyButton'),
-  copyAllButton: $('copyAllButton'),
-  summarizeButton: $('summarizeButton'),
-  duplicateButton: $('duplicateButton'),
   deleteButton: $('deleteButton'),
   attachmentInput: $('attachmentInput'),
   attachmentList: $('attachmentList'),
@@ -664,6 +658,20 @@ function buildInlinePanel(note) {
     textarea.addEventListener('click', (event) => event.stopPropagation());
     inner.append(textarea);
     requestAnimationFrame(autoResize);
+
+    if (note.attachments && note.attachments.length) {
+      const images = document.createElement('div');
+      images.className = 'note-inline-images';
+      images.addEventListener('click', (event) => event.stopPropagation());
+      for (const attachment of note.attachments) {
+        const img = document.createElement('img');
+        img.src = attachment.dataUrl;
+        img.alt = attachment.name || '添付画像';
+        img.loading = 'lazy';
+        images.append(img);
+      }
+      inner.append(images);
+    }
   }
 
   panel.append(inner);
@@ -937,26 +945,6 @@ async function closeEditor() {
   renderLibrary();
 }
 
-async function writeClipboard(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.style.position = 'fixed';
-      area.style.opacity = '0';
-      document.body.append(area);
-      area.select();
-      document.execCommand('copy');
-      area.remove();
-    }
-    showToast('コピーしました');
-  } catch {
-    showToast('コピーできませんでした');
-  }
-}
-
 async function createFromClipboard() {
   try {
     if (!navigator.clipboard?.readText) throw new Error('Clipboard unavailable');
@@ -1034,22 +1022,6 @@ function handleInitialShareTarget() {
   openQuickCapture({ title: payload.title, content: payload.content });
 }
 
-function insertFormatting(kind) {
-  const textarea = els.contentInput;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const selected = textarea.value.slice(start, end);
-  let before = '';
-  let after = '';
-  if (kind === 'heading') before = '# ';
-  if (kind === 'bold') { before = '**'; after = '**'; }
-  if (kind === 'bullet') before = '- ';
-  if (kind === 'check') before = '- [ ] ';
-  textarea.setRangeText(`${before}${selected}${after}`, start, end, 'end');
-  textarea.focus();
-  scheduleAutosave();
-}
-
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1088,27 +1060,6 @@ async function toggleFlag(key) {
   await putNote(note);
   updateEditorButtons(note);
   renderLibrary();
-}
-
-async function duplicateActive() {
-  await flushAutosave();
-  const note = currentNote();
-  if (!note) return;
-  if (!(await canCreateNewNote())) {
-    showUpgradePrompt();
-    return;
-  }
-  const clone = createNote({
-    title: `${note.title || '無題'}（コピー）`,
-    content: note.content,
-    tags: note.tags,
-    attachments: note.attachments,
-    relatedIds: note.relatedIds,
-  });
-  state.notes.push(clone);
-  await putNote(clone);
-  showToast('複製しました');
-  await openEditor(clone.id);
 }
 
 async function moveActiveToTrash() {
@@ -1399,29 +1350,7 @@ function wireEvents() {
 
   els.favoriteButton.addEventListener('click', () => toggleFlag('favorite'));
   els.pinButton.addEventListener('click', () => toggleFlag('pinned'));
-  els.copyTitleButton.addEventListener('click', () => writeClipboard(els.titleInput.value));
-  els.copyBodyButton.addEventListener('click', () => writeClipboard(els.contentInput.value));
-  els.copyAllButton.addEventListener('click', () => {
-    const note = syncInputsToNote();
-    const tagLine = note.tags.length ? `\n\n#${note.tags.join(' #')}` : '';
-    writeClipboard(`${note.title}\n\n${note.content}${tagLine}`.trim());
-  });
-  els.summarizeButton.addEventListener('click', () => {
-    const content = els.contentInput.value;
-    if (!content.trim()) {
-      showToast('本文が空です');
-      return;
-    }
-    const summary = summarize(content, 3);
-    writeClipboard(summary);
-    showToast('要約をコピーしました(無料のオフライン要約・簡易版)');
-  });
-  els.duplicateButton.addEventListener('click', duplicateActive);
   els.deleteButton.addEventListener('click', moveActiveToTrash);
-
-  document.querySelectorAll('[data-format]').forEach((button) => {
-    button.addEventListener('click', () => insertFormatting(button.dataset.format));
-  });
 
   els.attachmentInput.addEventListener('change', async () => {
     await addAttachments([...els.attachmentInput.files]);
