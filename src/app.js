@@ -41,6 +41,7 @@ const els = {
   quickEditButton: $('quickEditButton'),
   quizButton: $('quizButton'),
   trashButton: $('trashButton'),
+  trashEmptyAllButton: $('trashEmptyAllButton'),
   settingsButton: $('settingsButton'),
   homeButton: $('homeButton'),
   appTitleInput: $('appTitleInput'),
@@ -256,7 +257,7 @@ function renderLibrary() {
     selectDot.textContent = state.selectedNoteIds.has(note.id) ? '✓' : '';
     row.append(selectDot);
 
-    attachRowGestures(row, note);
+    attachRowGestures(row, note, swipeBg);
 
     const primaryTag = note.tags?.[0];
     if (primaryTag) {
@@ -301,11 +302,17 @@ function renderLibrary() {
 const SWIPE_REVEAL_PX = 84; // スワイプで止まる位置(ゴミ箱が見える所まで)
 const SWIPE_DELETE_PX = 150; // ここを超えて離すと即削除
 
+// 長押しで複数選択モードに入ると同時にrenderLibrary()がDOMを丸ごと作り直すため、
+// 指がまだ触れたままの状態で古いrow要素が消え、直後に発生するpointerupは
+// 新しく作られたrow(状態がリセットされた別インスタンス)で拾われてしまう。
+// これをゴースト操作として無視するためのタイムスタンプガード。
+let selectionModeEnteredAt = 0;
+
 // タイトル行のジェスチャーをまとめて設定する:
 // ・軽くタップ → 展開(または選択モード中はON/OFF切り替え)
 // ・長押し(500ms) → 複数選択モードに入る
 // ・左スワイプ → ゴミ箱を出す。さらに引くと削除
-function attachRowGestures(row, note) {
+function attachRowGestures(row, note, swipeBg) {
   let longPressTimer = null;
   let longPressTriggered = false;
   let dragging = false;
@@ -395,6 +402,7 @@ function attachRowGestures(row, note) {
       return;
     }
     if (state.selectionMode) {
+      if (Date.now() - selectionModeEnteredAt < 400) return; // 選択モード開始直後のゴーストpointerupを無視
       toggleNoteSelection(note.id);
     } else {
       toggleInlineExpand(note.id);
@@ -409,6 +417,13 @@ function attachRowGestures(row, note) {
     showToast('ゴミ箱へ移動しました');
     setTimeout(renderLibrary, 160);
   }
+
+  // ゴミ箱が見えている状態(restingX !== 0)でrow自体は左にずれているため、
+  // 露出したゴミ箱アイコン部分は実際にはswipeBg要素の上にある。
+  // rowのpointerupだけでは拾えないので、ここにも同じタップ削除を仕込む。
+  swipeBg?.addEventListener('pointerup', () => {
+    if (restingX !== 0) endSwipeTapToDelete();
+  });
 
   row.addEventListener('pointerleave', () => {
     cancelLongPress();
@@ -437,6 +452,7 @@ function attachRowGestures(row, note) {
 function enterSelectionMode(firstNoteId) {
   state.selectionMode = true;
   state.selectedNoteIds = new Set([firstNoteId]);
+  selectionModeEnteredAt = Date.now();
   renderLibrary();
 }
 
@@ -1093,6 +1109,7 @@ async function moveActiveToTrash() {
 function renderTrash() {
   const notes = filterAndSortNotes(state.notes, { onlyDeleted: true, sort: 'updated' });
   els.trashList.replaceChildren();
+  if (els.trashEmptyAllButton) els.trashEmptyAllButton.disabled = notes.length === 0;
   if (!notes.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1140,6 +1157,20 @@ function renderTrash() {
     card.append(title, meta, actions);
     els.trashList.append(card);
   }
+}
+
+async function emptyTrash() {
+  const notes = state.notes.filter((note) => note.deletedAt != null);
+  if (!notes.length) return;
+  if (!confirm(`ゴミ箱の${notes.length}件をすべて完全に削除しますか？この操作は取り消せません。`)) return;
+  for (const note of notes) {
+    await deleteNotePermanently(note.id);
+  }
+  const deletedIds = new Set(notes.map((note) => note.id));
+  state.notes = state.notes.filter((note) => !deletedIds.has(note.id));
+  renderTrash();
+  renderLibrary();
+  showToast('ゴミ箱を空にしました');
 }
 
 // 隠し機能(チュートリアルでは触れない): タイトルだけ見せて「内容は？」と出題し、
@@ -1340,6 +1371,7 @@ function wireEvents() {
     showView('trash');
   });
   els.trashBackButton.addEventListener('click', () => showView('library'));
+  els.trashEmptyAllButton?.addEventListener('click', emptyTrash);
   els.backButton.addEventListener('click', closeEditor);
   els.homeButton.addEventListener('click', goHome);
   els.appTitleInput.addEventListener('input', scheduleAppTitleSave);

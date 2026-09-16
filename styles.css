@@ -237,6 +237,9 @@ button { cursor: pointer; }
 .sub-header { border-bottom: 1px solid var(--line); }
 .sub-header > * { width: 42px; }
 .sub-header h2 { width: auto; flex: 1; text-align: center; }
+.text-btn { width: auto !important; border: 0; background: transparent; padding: 6px 4px; font-size: .82rem; font-weight: 720; white-space: nowrap; }
+.text-btn.danger-text { color: var(--danger); }
+.text-btn:disabled { opacity: .35; }
 .trash-list { padding: 14px; display: grid; gap: 10px; }
 .trash-card { border: 1px solid var(--line); border-radius: 15px; background: var(--surface); padding: 14px; }
 .trash-card-actions { display: flex; gap: 8px; margin-top: 10px; }
