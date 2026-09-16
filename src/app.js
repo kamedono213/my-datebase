@@ -1389,8 +1389,9 @@ function wireEvents() {
     } catch (error) {
       console.error(error);
       // 原因を特定するため、一旦エラーの中身をそのまま出す(落ち着いたら簡潔なメッセージに戻す)。
+      // トースト(1.8秒で消える)だとスクショが間に合わないため、手動で閉じるまで消えないalertで表示する。
       const detail = error?.code || error?.message || String(error);
-      showToast(`ログインできませんでした: ${detail}`);
+      alert(`ログインできませんでした:\n${detail}`);
     }
   });
   els.signOutButton.addEventListener('click', async () => {
