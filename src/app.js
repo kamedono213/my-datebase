@@ -1152,8 +1152,26 @@ function wireEvents() {
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushAutosave();
+    if (document.visibilityState === 'hidden') {
+      flushAutosave();
+    } else if (document.visibilityState === 'visible') {
+      // オーバーレイ(常駐アイコン)から追加したメモは、本体アプリがバックグラウンドで
+      // 開いたままの間に別経路でIndexedDBへ書き込まれる。本体アプリ側は起動時に一度
+      // listNotes()した内容をメモリに保持したままなので、フォアグラウンドに戻るたびに
+      // 読み直さないと「保存されたのに一覧に出てこない」状態になる。
+      reloadNotesFromDb();
+    }
   });
+}
+
+async function reloadNotesFromDb() {
+  const activeId = state.activeNoteId;
+  state.notes = await listNotes();
+  if (activeId && !state.notes.some((note) => note.id === activeId)) {
+    state.activeNoteId = null;
+    state.expandedNoteId = null;
+  }
+  renderLibrary();
 }
 
 async function init() {
