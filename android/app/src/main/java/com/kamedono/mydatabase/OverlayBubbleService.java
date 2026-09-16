@@ -24,12 +24,16 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
+import androidx.webkit.WebViewAssetLoader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -69,6 +73,7 @@ public class OverlayBubbleService extends Service {
 
     private int nextRequestId = 1;
     private final Map<Integer, java.util.function.Consumer<Boolean>> pendingSaveCallbacks = new HashMap<>();
+    private final Map<Integer, java.util.function.Consumer<List<String>>> pendingTagCallbacks = new HashMap<>();
 
     private SpeechRecognizer speechRecognizer;
     private EditText activeInputForSpeech;
@@ -153,15 +158,52 @@ public class OverlayBubbleService extends Service {
                 if (callback != null) callback.accept(ok);
             });
         }
+
+        @JavascriptInterface
+        public void onTagsResult(int requestId, String namesJson) {
+            mainHandler.post(() -> {
+                java.util.function.Consumer<List<String>> callback = pendingTagCallbacks.remove(requestId);
+                if (callback == null) return;
+                List<String> names = new ArrayList<>();
+                try {
+                    JSONArray arr = new JSONArray(namesJson);
+                    for (int i = 0; i < arr.length(); i++) names.add(arr.getString(i));
+                } catch (Exception ignored) {
+                }
+                callback.accept(names);
+            });
+        }
     }
 
+    /**
+     * 本体アプリ(Capacitorのデフォルト設定)は https://localhost というoriginでWebViewを動かしている。
+     * この隠しWebViewを file:// で読み込むと別originになり、IndexedDBが本体と共有されない
+     * (2026-09-16に発覚した「保存しましたと出るのに実際は保存されない」不具合の根本原因)。
+     * WebViewAssetLoaderで同じ https://localhost origin から配信することで、同じIndexedDBに
+     * 書き込めるようにする。
+     */
     private void setupBridgeWebView() {
+        // プレフィックスは"/"(ルート)にする。AssetsPathHandlerはマッチしたプレフィックスを
+        // 取り除いた残りのパスをそのままassets/配下の相対パスとして開くため、
+        // "/public/"にすると実際のassets/public/配下ではなくassets/直下を探してしまい、
+        // ファイルが見つからなくなる(assets/public/overlaybridge.htmlを開きたいので、
+        // リクエストパス全体"public/overlaybridge.html"をそのまま渡す必要がある)。
+        WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+            .setDomain("localhost")
+            .addPathHandler("/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .build();
+
         bridgeWebView = new WebView(this);
         bridgeWebView.getSettings().setJavaScriptEnabled(true);
         bridgeWebView.getSettings().setDomStorageEnabled(true);
         bridgeWebView.getSettings().setDatabaseEnabled(true);
         bridgeWebView.addJavascriptInterface(new JsBridge(), "AndroidBridge");
         bridgeWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 bridgeReady = true;
@@ -172,7 +214,7 @@ public class OverlayBubbleService extends Service {
                 }
             }
         });
-        bridgeWebView.loadUrl("file:///android_asset/public/overlaybridge.html");
+        bridgeWebView.loadUrl("https://localhost/public/overlaybridge.html");
 
         // 画面には映さないが、WebViewが正しく動くにはウィンドウに追加されている必要がある
         WindowManager.LayoutParams hiddenParams = new WindowManager.LayoutParams(
@@ -188,6 +230,27 @@ public class OverlayBubbleService extends Service {
         } catch (Exception ignored) {
             // オーバーレイ権限が無い等で失敗した場合でも致命的にはしない
         }
+    }
+
+    private void fetchExistingTags(java.util.function.Consumer<List<String>> onDone) {
+        int requestId = nextRequestId++;
+        pendingTagCallbacks.put(requestId, onDone);
+        Runnable attempt = () -> bridgeWebView.evaluateJavascript(
+            "window.__overlayGetTags(" + requestId + ")", null
+        );
+        if (bridgeReady) {
+            attempt.run();
+        } else {
+            Runnable previous = pendingBridgeAction;
+            pendingBridgeAction = () -> {
+                if (previous != null) previous.run();
+                attempt.run();
+            };
+        }
+        mainHandler.postDelayed(() -> {
+            java.util.function.Consumer<List<String>> stillPending = pendingTagCallbacks.remove(requestId);
+            if (stillPending != null) stillPending.accept(new ArrayList<>());
+        }, 5000);
     }
 
     /**
@@ -309,6 +372,7 @@ public class OverlayBubbleService extends Service {
         EditText titleInput = cardView.findViewById(R.id.overlayTitleInput);
         EditText contentInput = cardView.findViewById(R.id.overlayContentInput);
         EditText tagsInput = cardView.findViewById(R.id.overlayTagsInput);
+        LinearLayout tagChips = cardView.findViewById(R.id.overlayTagChips);
         TextView statusText = cardView.findViewById(R.id.overlayStatusText);
         TextView cancelButton = cardView.findViewById(R.id.overlayCancelButton);
         TextView saveButton = cardView.findViewById(R.id.overlaySaveButton);
@@ -366,6 +430,38 @@ public class OverlayBubbleService extends Service {
         cardAdded = true;
         titleInput.requestFocus();
         prefillFromClipboard(contentInput);
+
+        fetchExistingTags(tags -> populateTagChips(tagChips, tagsInput, tags));
+    }
+
+    /** 既存タグをタップ候補として並べる。タップで tagsInput にカンマ区切りで追加/解除する。 */
+    private void populateTagChips(LinearLayout container, EditText tagsInput, List<String> tags) {
+        if (container == null || tags.isEmpty()) return;
+        int paddingH = dpToPx(10), paddingV = dpToPx(5), marginEnd = dpToPx(6);
+        for (String tag : tags) {
+            TextView chip = new TextView(this);
+            chip.setText(tag);
+            chip.setTextSize(12);
+            chip.setPadding(paddingH, paddingV, paddingH, paddingV);
+            chip.setBackgroundResource(R.drawable.bg_bubble_circle);
+            chip.setTextColor(0xFFFFFFFF);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            lp.setMarginEnd(marginEnd);
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> {
+                List<String> current = parseTags(tagsInput.getText().toString());
+                if (current.contains(tag)) {
+                    current.remove(tag);
+                } else {
+                    current.add(tag);
+                }
+                tagsInput.setText(String.join(", ", current));
+                tagsInput.setSelection(tagsInput.getText().length());
+            });
+            container.addView(chip);
+        }
     }
 
     private List<String> parseTags(String raw) {

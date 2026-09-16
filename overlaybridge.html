@@ -3,11 +3,16 @@
 <head><meta charset="utf-8"><title>overlay bridge</title></head>
 <body>
 <script type="module">
-  import { putNote } from './src/db.js';
+  import { putNote, getSetting } from './src/db.js';
   // OverlayBubbleServiceの隠しWebViewから evaluateJavascript で呼ばれる保存関数。
   // 通常のUIは持たない、ネイティブのオーバーレイUIから既存のIndexedDBへ橋渡しするだけの役目。
   //
-  // 注意: __overlaySaveはasync関数なので、evaluateJavascriptの戻り値（同期的な返り値）は
+  // 重要: このページは https://localhost 経由で読み込まれる必要がある(WebViewAssetLoader経由)。
+  // file:// で読み込むと、本体アプリ(Capacitorのデフォルトorigin https://localhost)とは
+  // 別originになり、IndexedDBが別データベース扱いになって保存が本体に反映されない
+  // (2026-09-16に発覚した不具合の根本原因)。
+  //
+  // __overlaySaveはasync関数なので、evaluateJavascriptの戻り値（同期的な返り値）は
   // 実際の保存完了を意味しない（PromiseはJSON化できずnullになる）。そのため結果は
   // AndroidBridge.onSaveResult(requestId, ok, message) でJava側へ明示的に報告する。
   window.__overlaySave = (requestId, title, content, tags) => {
@@ -25,6 +30,20 @@
       }
     })();
   };
+
+  // タグ候補(タグ管理画面で作った既存タグ)をネイティブ側のチップ表示用に返す。
+  window.__overlayGetTags = (requestId) => {
+    (async () => {
+      try {
+        const registry = await getSetting('tagRegistry', []);
+        const names = Array.isArray(registry) ? registry.map((t) => t && t.name).filter(Boolean) : [];
+        window.AndroidBridge?.onTagsResult(requestId, JSON.stringify(names));
+      } catch (e) {
+        window.AndroidBridge?.onTagsResult(requestId, '[]');
+      }
+    })();
+  };
+
   window.__overlayReady = true;
 </script>
 </body>
