@@ -73,7 +73,7 @@ button { cursor: pointer; }
 .app-title-row { display: flex; align-items: center; min-width: 0; gap: 5px; }
 .app-title-input {
   min-width: 0; width: 100%; max-width: 360px; border: 0; outline: 0; background: transparent; color: var(--text);
-  font-size: 1.45rem; font-weight: 850; letter-spacing: -.03em; padding: 2px 3px; border-radius: 7px;
+  font-size: 1.05rem; font-weight: 850; letter-spacing: -.02em; padding: 2px 3px; border-radius: 7px;
   text-overflow: ellipsis;
 }
 .app-title-input:focus { background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
