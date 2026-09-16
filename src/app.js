@@ -514,9 +514,17 @@ function syncInputsToNote() {
 // タップでON/OFFできるようにする。末尾に新規タグ作成チップを置く。
 function renderTagsPicker() {
   const registryNames = state.tagRegistry.map((t) => t.name);
-  const extra = [...state.editingTags].filter(
-    (tag) => !registryNames.some((name) => name.toLocaleLowerCase() === tag.toLocaleLowerCase())
-  );
+  // タグ作成ダイアログを経由せず、自由入力の時代に付けられたタグも候補に出す。
+  // (登録済みタグ一覧だけだと、編集中のメモに元々ついていないタグは出てこなかった)
+  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  const seen = new Set(registryNames.map((name) => name.toLocaleLowerCase()));
+  const extra = [];
+  for (const tag of [...state.editingTags, ...usedNames]) {
+    const key = tag.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    extra.push(tag);
+  }
   const allNames = [...registryNames, ...extra];
   const colorMap = resolveTagColorMap(allNames);
 
@@ -1143,7 +1151,9 @@ function wireEvents() {
       await signIn();
     } catch (error) {
       console.error(error);
-      showToast('ログインできませんでした');
+      // 原因を特定するため、一旦エラーの中身をそのまま出す(落ち着いたら簡潔なメッセージに戻す)。
+      const detail = error?.code || error?.message || String(error);
+      showToast(`ログインできませんでした: ${detail}`);
     }
   });
   els.signOutButton.addEventListener('click', async () => {
