@@ -154,6 +154,15 @@
       </div>
 
       <div class="settings-block">
+        <strong>アップグレード</strong>
+        <p id="upgradeStatusText" class="muted">無料版（10件まで）</p>
+        <div id="upgradeCodeForm" class="backup-actions">
+          <input id="upgradeCodeInput" type="text" placeholder="解除コードを入力" class="wide-select" autocomplete="off">
+          <button id="upgradeCodeButton" class="primary-btn" type="button">解除する</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
         <strong>バックアップ</strong>
         <p class="muted">全メモ・タグ・画像・設定を1つのJSONファイルに保存します。</p>
         <div class="backup-actions">
@@ -263,6 +272,65 @@
     }
 
     setupOverlayToggle();
+  </script>
+
+  <!--
+    アップグレード解除(Gumroadのライセンスキー)。app.js本体には触れず、
+    設定画面のこのブロックだけで完結する独立した追加。
+    LICENSE_VERIFY_URLは、Gumroadのライセンスキーを中継検証するCloudflare Workerのアドレス
+    (ブラウザからGumroad APIを直接呼ぶとCORSで弾かれるため)。
+  -->
+  <script type="module">
+    import { getSetting, setSetting } from './src/db.js';
+
+    const LICENSE_VERIFY_URL = 'https://picknote-license-verify.REPLACE_ME.workers.dev';
+    const PRO_UNLOCKED_KEY = 'proUnlocked';
+
+    async function setupUpgradeSection() {
+      const statusText = document.getElementById('upgradeStatusText');
+      const form = document.getElementById('upgradeCodeForm');
+      const input = document.getElementById('upgradeCodeInput');
+      const button = document.getElementById('upgradeCodeButton');
+      if (!statusText || !form || !input || !button) return;
+
+      async function refresh() {
+        const unlocked = await getSetting(PRO_UNLOCKED_KEY, false);
+        statusText.textContent = unlocked ? 'アップグレード済み（件数無制限）' : '無料版（10件まで）';
+        form.hidden = Boolean(unlocked);
+      }
+
+      button.addEventListener('click', async () => {
+        const licenseKey = input.value.trim();
+        if (!licenseKey) return;
+        button.disabled = true;
+        const originalLabel = button.textContent;
+        button.textContent = '確認中...';
+        try {
+          const response = await fetch(LICENSE_VERIFY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ licenseKey }),
+          });
+          const data = await response.json();
+          if (data.valid) {
+            await setSetting(PRO_UNLOCKED_KEY, true);
+            statusText.textContent = 'アップグレード済み（件数無制限）';
+            form.hidden = true;
+          } else {
+            alert('コードが確認できませんでした。購入時のコードをそのまま貼り付けてください。');
+          }
+        } catch {
+          alert('通信に失敗しました。時間をおいてもう一度お試しください。');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }
+      });
+
+      await refresh();
+    }
+
+    setupUpgradeSection();
   </script>
 
   <!--
