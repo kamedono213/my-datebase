@@ -41,7 +41,6 @@ const els = {
   quizButton: $('quizButton'),
   trashButton: $('trashButton'),
   trashEmptyAllButton: $('trashEmptyAllButton'),
-  settingsButton: $('settingsButton'),
   accountButton: $('accountButton'),
   accountAvatarPlaceholder: $('accountAvatarPlaceholder'),
   accountAvatarImg: $('accountAvatarImg'),
@@ -1192,6 +1191,12 @@ function updateAuthUI(user) {
   }
 
   if (signedIn && user.photoURL) {
+    // 読み込みに失敗したら(googleusercontent.comへのアクセスが一時的に
+    // 塞がれている場合など)、壊れた画像アイコンのまま残さずシルエットに戻す。
+    els.accountAvatarImg.onerror = () => {
+      els.accountAvatarImg.hidden = true;
+      els.accountAvatarPlaceholder.hidden = false;
+    };
     els.accountAvatarImg.src = user.photoURL;
     els.accountAvatarImg.hidden = false;
     els.accountAvatarPlaceholder.hidden = true;
@@ -1336,12 +1341,10 @@ function wireEvents() {
     els.attachmentInput.value = '';
   });
 
-  const openSettingsDialog = () => {
+  els.accountButton.addEventListener('click', () => {
     if (typeof els.settingsDialog.showModal === 'function') els.settingsDialog.showModal();
     else els.settingsDialog.setAttribute('open', '');
-  };
-  els.settingsButton.addEventListener('click', openSettingsDialog);
-  els.accountButton.addEventListener('click', openSettingsDialog);
+  });
   els.themeSelect.addEventListener('change', async () => {
     applyTheme(els.themeSelect.value);
     await setSetting('theme', els.themeSelect.value);
