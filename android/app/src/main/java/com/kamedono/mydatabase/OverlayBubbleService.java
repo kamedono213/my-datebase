@@ -513,7 +513,8 @@ public class OverlayBubbleService extends Service {
 
             @Override
             public void onError(int error) {
-                statusText.setText("聞き取れませんでした。もう一度お試しください");
+                // 原因特定のため、一旦エラーコードをそのまま表示する(落ち着いたら簡潔なメッセージに戻す)。
+                statusText.setText("聞き取れませんでした(" + speechErrorLabel(error) + ")。もう一度お試しください");
                 cleanupRecognizer();
             }
 
@@ -549,6 +550,22 @@ public class OverlayBubbleService extends Service {
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
+        }
+    }
+
+    // SpeechRecognizerのエラーコードを人が読める形にする(診断用、2026-09-18追加)。
+    private String speechErrorLabel(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT: return "ネットワークタイムアウト";
+            case SpeechRecognizer.ERROR_NETWORK: return "ネットワークエラー";
+            case SpeechRecognizer.ERROR_AUDIO: return "録音エラー";
+            case SpeechRecognizer.ERROR_SERVER: return "サーバーエラー";
+            case SpeechRecognizer.ERROR_CLIENT: return "クライアントエラー";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "無音タイムアウト";
+            case SpeechRecognizer.ERROR_NO_MATCH: return "認識結果なし";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "認識エンジンがビジー";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "マイク権限不足";
+            default: return "コード" + error;
         }
     }
 
