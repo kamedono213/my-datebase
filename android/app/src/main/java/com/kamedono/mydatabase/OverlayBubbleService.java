@@ -6,9 +6,11 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,6 +18,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.speech.RecognitionListener;
+import android.speech.RecognitionService;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.view.Gravity;
@@ -508,7 +511,13 @@ public class OverlayBubbleService extends Service {
         // このタップで話す内容の差し込み先を確定(以後フォーカスが動いても変わらない)。
         final EditText speechTarget = target;
 
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        // 機種によっては`createSpeechRecognizer(this)`が端末デフォルトの(Googleより精度の低い)
+        // 音声認識サービスに繋がることがある。Google純正のGboardのマイクの方が聞き取れる、という
+        // 報告があったため、Google音声検索アプリの認識サービスが端末にあればそれを明示的に指定する。
+        ComponentName googleRecognizer = findGoogleRecognitionService();
+        speechRecognizer = googleRecognizer != null
+            ? SpeechRecognizer.createSpeechRecognizer(this, googleRecognizer)
+            : SpeechRecognizer.createSpeechRecognizer(this);
         Intent recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.JAPAN.toString());
@@ -560,6 +569,23 @@ public class OverlayBubbleService extends Service {
             speechRecognizer.destroy();
             speechRecognizer = null;
         }
+    }
+
+    // 端末にGoogleの音声認識サービス(Google純正、Gboardのマイクと同じエンジン)があれば
+    // そのComponentNameを返す。無ければnull(端末デフォルトにフォールバック)。
+    private ComponentName findGoogleRecognitionService() {
+        try {
+            Intent serviceIntent = new Intent(RecognitionService.SERVICE_INTERFACE);
+            serviceIntent.setPackage("com.google.android.googlequicksearchbox");
+            List<ResolveInfo> services = getPackageManager().queryIntentServices(serviceIntent, 0);
+            if (services != null && !services.isEmpty()) {
+                android.content.pm.ServiceInfo info = services.get(0).serviceInfo;
+                return new ComponentName(info.packageName, info.name);
+            }
+        } catch (Exception ignored) {
+            // 取得に失敗しても致命的ではないので、呼び出し側でデフォルトにフォールバックする。
+        }
+        return null;
     }
 
     // SpeechRecognizerのエラーコードを人が読める形にする(診断用、2026-09-18追加)。
