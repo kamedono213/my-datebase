@@ -1160,13 +1160,34 @@ function openQuizNote() {
   document.body.append(overlay);
 }
 
-function downloadJson(data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+// AndroidのWebView(Capacitorアプリ本体)では、<a download>によるBlob
+// ダウンロードが動かないことがある(WebViewにダウンロードハンドラが無いため
+// クリックが黙って無視される)。Web Share API(ファイル共有)が使える場合は
+// そちらを優先し、共有シートから保存先(ファイル/ドライブ等)を選んでもらう。
+// 使えない場合(デスクトップブラウザ等)は従来のダウンロード方式にフォールバック。
+async function downloadJson(data) {
+  const date = new Date().toISOString().slice(0, 10);
+  const filename = `knowledge-backup-${date}.json`;
+  const text = JSON.stringify(data, null, 2);
+
+  if (navigator.canShare && navigator.share) {
+    try {
+      const file = new File([text], filename, { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // 共有シートをキャンセルしただけなので何もしない
+      // それ以外のエラーはダウンロード方式にフォールバックする
+    }
+  }
+
+  const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const date = new Date().toISOString().slice(0, 10);
   a.href = url;
-  a.download = `knowledge-backup-${date}.json`;
+  a.download = filename;
   document.body.append(a);
   a.click();
   a.remove();
@@ -1350,7 +1371,7 @@ function wireEvents() {
     await setSetting('theme', els.themeSelect.value);
   });
   els.exportButton.addEventListener('click', async () => {
-    downloadJson(await exportData());
+    await downloadJson(await exportData());
     showToast('バックアップを書き出しました');
   });
   els.importInput.addEventListener('change', () => {
