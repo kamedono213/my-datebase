@@ -388,7 +388,15 @@ public class OverlayBubbleService extends Service {
 
         cancelButton.setOnClickListener(v -> collapseCard());
 
-        micButton.setOnClickListener(v -> toggleSpeechInput(statusText));
+        // マイクボタンを押した瞬間の入力欄を確定して渡す。フォーカス監視(trackFocus)頼みだと、
+        // マイクボタン自体がタップされた拍子にフォーカスがタイトル欄へ戻ってしまうことがあり、
+        // 「本文欄を狙って話したのにタイトルに入る/入らない」という不具合の原因になっていた。
+        micButton.setOnClickListener(v -> {
+            EditText target = contentInput.hasFocus() ? contentInput
+                : titleInput.hasFocus() ? titleInput
+                : activeInputForSpeech;
+            toggleSpeechInput(statusText, target);
+        });
 
         saveButton.setOnClickListener(v -> {
             String title = titleInput.getText().toString().trim();
@@ -481,7 +489,7 @@ public class OverlayBubbleService extends Service {
             == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void toggleSpeechInput(TextView statusText) {
+    private void toggleSpeechInput(TextView statusText, EditText target) {
         if (!hasMicPermission()) {
             statusText.setText("マイクの許可が必要です（アプリの設定から許可してください）");
             return;
@@ -497,6 +505,8 @@ public class OverlayBubbleService extends Service {
             statusText.setText("");
             return;
         }
+        // このタップで話す内容の差し込み先を確定(以後フォーカスが動いても変わらない)。
+        final EditText speechTarget = target;
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         Intent recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
@@ -522,7 +532,7 @@ public class OverlayBubbleService extends Service {
             public void onResults(Bundle results) {
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty()) {
-                    insertRecognizedText(matches.get(0));
+                    insertRecognizedText(speechTarget, matches.get(0));
                 }
                 statusText.setText("");
                 cleanupRecognizer();
@@ -535,9 +545,8 @@ public class OverlayBubbleService extends Service {
         speechRecognizer.startListening(recognizerIntent);
     }
 
-    private void insertRecognizedText(String text) {
-        if (activeInputForSpeech == null || text == null || text.isEmpty()) return;
-        EditText target = activeInputForSpeech;
+    private void insertRecognizedText(EditText target, String text) {
+        if (target == null || text == null || text.isEmpty()) return;
         int start = Math.max(0, target.getSelectionStart());
         CharSequence existing = target.getText();
         String before = existing.subSequence(0, Math.min(start, existing.length())).toString();
