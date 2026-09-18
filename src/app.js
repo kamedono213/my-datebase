@@ -1160,26 +1160,39 @@ function openQuizNote() {
   document.body.append(overlay);
 }
 
-// AndroidのWebView(Capacitorアプリ本体)では、<a download>によるBlob
-// ダウンロードが動かないことがある(WebViewにダウンロードハンドラが無いため
-// クリックが黙って無視される)。Web Share API(ファイル共有)が使える場合は
-// そちらを優先し、共有シートから保存先(ファイル/ドライブ等)を選んでもらう。
-// 使えない場合(デスクトップブラウザ等)は従来のダウンロード方式にフォールバック。
+// Androidのネイティブアプリ(Capacitor)では、<a download>によるBlob
+// ダウンロードもnavigator.share()も、生のWebViewにはダウンロード/共有への
+// ブリッジが無いため黙って何も起きない。ネイティブ側ではFilesystem(書き込み)
+// +Share(共有シート)のCapacitorプラグインを使う確実な経路にする。
+// ブラウザ/PWA(GitHub Pages版)では従来通り<a download>で動くので維持する。
 async function downloadJson(data) {
   const date = new Date().toISOString().slice(0, 10);
   const filename = `knowledge-backup-${date}.json`;
   const text = JSON.stringify(data, null, 2);
 
-  if (navigator.canShare && navigator.share) {
+  const Filesystem = window.Capacitor?.Plugins?.Filesystem;
+  const Share = window.Capacitor?.Plugins?.Share;
+  const isNative = Boolean(window.Capacitor?.isNativePlatform?.());
+
+  if (isNative && Filesystem && Share) {
     try {
-      const file = new File([text], filename, { type: 'application/json' });
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename });
-        return;
-      }
+      const written = await Filesystem.writeFile({
+        path: filename,
+        data: text,
+        directory: 'CACHE',
+        encoding: 'utf8',
+      });
+      await Share.share({
+        title: filename,
+        url: written.uri,
+        dialogTitle: 'バックアップを保存',
+      });
+      return;
     } catch (error) {
-      if (error?.name === 'AbortError') return; // 共有シートをキャンセルしただけなので何もしない
-      // それ以外のエラーはダウンロード方式にフォールバックする
+      // 原因を特定するため、一旦エラーの中身をそのまま出す(落ち着いたら簡潔なメッセージに戻す)。
+      const detail = error?.message || String(error);
+      alert(`書き出しに失敗しました:\n${detail}`);
+      return;
     }
   }
 
