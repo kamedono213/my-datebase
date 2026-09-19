@@ -1170,23 +1170,12 @@ async function downloadJson(data) {
   const filename = `knowledge-backup-${date}.json`;
   const text = JSON.stringify(data, null, 2);
 
-  const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-  const Share = window.Capacitor?.Plugins?.Share;
+  const BackupExport = window.Capacitor?.Plugins?.BackupExport;
   const isNative = Boolean(window.Capacitor?.isNativePlatform?.());
 
-  if (isNative && Filesystem && Share) {
+  if (isNative && BackupExport) {
     try {
-      const written = await Filesystem.writeFile({
-        path: filename,
-        data: text,
-        directory: 'CACHE',
-        encoding: 'utf8',
-      });
-      await Share.share({
-        title: filename,
-        url: written.uri,
-        dialogTitle: 'バックアップを保存',
-      });
+      await BackupExport.saveToDownloads({ filename, content: text });
       return;
     } catch (error) {
       // 原因を特定するため、一旦エラーの中身をそのまま出す(落ち着いたら簡潔なメッセージに戻す)。
@@ -1385,7 +1374,7 @@ function wireEvents() {
   });
   els.exportButton.addEventListener('click', async () => {
     await downloadJson(await exportData());
-    showToast('バックアップを書き出しました');
+    showToast('ダウンロードフォルダに保存しました');
   });
   els.importInput.addEventListener('change', () => {
     const [file] = els.importInput.files;

@@ -63,4 +63,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Android 9以前でのバックアップ書き出し(Downloadsフォルダへの直接保存)用。
+         Android 10以降はスコープドストレージ対応のMediaStore経由で保存するため不要。 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 </manifest>
