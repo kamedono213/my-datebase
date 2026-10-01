@@ -209,7 +209,13 @@ function buildStarRating(note) {
       note.rating = note.rating === i ? 0 : i;
       note.updatedAt = Date.now();
       putNote(note);
-      renderLibrary();
+      // renderLibrary()で一覧全体を作り直すと、展開中のパネルの.note-inline-wrapも
+      // 新しい要素に置き換わり、.openクラスがrequestAnimationFrameで付け直される
+      // ため、開閉アニメーションが最初からやり直しになって「一瞬閉じて開く」ように
+      // 見えてしまう。星の見た目だけその場で書き換えて、再描画はしない。
+      Array.from(wrap.children).forEach((s, idx) => {
+        s.textContent = idx + 1 <= note.rating ? '★' : '☆';
+      });
     });
     wrap.append(star);
   }
