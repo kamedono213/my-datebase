@@ -1,4 +1,4 @@
-import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
+import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags, normalizeNoteType } from './model.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
@@ -19,6 +19,14 @@ const $ = (id) => document.getElementById(id);
 const DEFAULT_APP_TITLE = 'ピックノート';
 const FREE_NOTE_LIMIT = 10;
 const PRO_UNLOCKED_KEY = 'proUnlocked';
+
+const NOTE_TYPE_LABELS = { knowledge: '知識', movie: '映画', book: '本' };
+const MOVIE_TEMPLATE =
+  '■評価: ★★★☆☆\n\n' +
+  '■鑑賞日: \n\n' +
+  '■あらすじ(自分の言葉で):\n\n\n' +
+  '■印象に残ったシーン・セリフ:\n\n\n' +
+  '■感想:\n';
 
 const els = {
   libraryView: $('libraryView'),
@@ -79,12 +87,16 @@ const els = {
   bulkTagPicker: $('bulkTagPicker'),
   bulkTagCloseButton: $('bulkTagCloseButton'),
   bulkTagApplyButton: $('bulkTagApplyButton'),
+  bottomTabbar: $('bottomTabbar'),
 };
 
 const state = {
   notes: [],
   activeNoteId: null,
   expandedNoteId: null,
+  activeType: 'knowledge', // 下部タブ: 'knowledge' | 'movie' | 'book'
+  bookLevel: {}, // noteId -> 0(閉じる)/1(概要)/2(概要+章一覧)
+  chapterOpen: {}, // `${noteId}:${chapterId}` -> bool
   selectedTags: new Set(),
   editingTags: new Set(),
   selectionMode: false,
@@ -167,9 +179,20 @@ function textWithLinks(container, text) {
   container.append(document.createTextNode(value.slice(last)));
 }
 
+function updateBottomTabbar() {
+  if (!els.bottomTabbar) return;
+  for (const btn of els.bottomTabbar.querySelectorAll('button')) {
+    btn.classList.toggle('active', btn.dataset.noteType === state.activeType);
+  }
+}
+
+function notesInActiveTab() {
+  return state.notes.filter((note) => normalizeNoteType(note.noteType) === state.activeType);
+}
+
 function collectAllTags() {
   const counts = new Map();
-  for (const note of state.notes) {
+  for (const note of notesInActiveTab()) {
     if (note.deletedAt != null) continue;
     for (const tag of note.tags || []) counts.set(tag, (counts.get(tag) || 0) + 1);
   }
@@ -179,7 +202,7 @@ function collectAllTags() {
 function renderTagFilters(tagEntries, colorMap) {
   els.tagFilters.replaceChildren();
 
-  const allCount = state.notes.filter((note) => note.deletedAt == null).length;
+  const allCount = notesInActiveTab().filter((note) => note.deletedAt == null).length;
   const allButton = document.createElement('button');
   allButton.type = 'button';
   allButton.className = `tag-chip${state.selectedTags.size === 0 ? ' active' : ''}`;
@@ -225,7 +248,10 @@ function renderLibrary() {
     tags: [...state.selectedTags],
     sort: state.sort,
     tagOrder,
+    noteType: state.activeType,
   });
+
+  updateBottomTabbar();
 
   els.noteList.replaceChildren();
   els.resultCount.textContent = `${notes.length}件`;
@@ -234,9 +260,15 @@ function renderLibrary() {
   if (notes.length === 0 && (state.query || state.selectedTags.size)) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.innerHTML = '<strong>該当する知識がありません</strong><span>検索語やタブを変えてみてください。</span>';
+    empty.innerHTML = '<strong>該当するメモがありません</strong><span>検索語やタグを変えてみてください。</span>';
     els.noteList.append(empty);
     return;
+  }
+
+  if (notes.length === 0) {
+    const label = NOTE_TYPE_LABELS[state.activeType];
+    els.emptyState.querySelector('strong').textContent = `まだ${label}がありません`;
+    els.emptyState.querySelector('span').textContent = '右下の＋から最初のメモを作れます。';
   }
 
   for (const note of notes) {
@@ -299,7 +331,8 @@ function renderLibrary() {
     card.append(buildInlinePanel(note));
     els.noteList.append(card);
 
-    if (state.expandedNoteId === note.id) {
+    const isBookOpen = normalizeNoteType(note.noteType) === 'book' && (state.bookLevel[note.id] || 0) > 0;
+    if (state.expandedNoteId === note.id || isBookOpen) {
       const wrap = card.querySelector('.note-inline-wrap');
       requestAnimationFrame(() => wrap.classList.add('open'));
     }
@@ -630,6 +663,14 @@ function openRowMenu(note, anchorEl) {
 // タイトル行を押すとページ転換せずその場で内容を開く。中の内容欄はそのまま
 // 編集もできる(自動保存)。フルページでの編集は長押し/ペンマークのメニューから。
 function toggleInlineExpand(noteId) {
+  const note = state.notes.find((item) => item.id === noteId);
+  if (note && normalizeNoteType(note.noteType) === 'book') {
+    // 本タイプ: タップごとに 閉じる→概要→概要+章一覧→閉じる、と3段階で循環する。
+    const level = state.bookLevel[noteId] || 0;
+    state.bookLevel[noteId] = (level + 1) % 3;
+    renderLibrary();
+    return;
+  }
   state.expandedNoteId = state.expandedNoteId === noteId ? null : noteId;
   renderLibrary();
 }
@@ -653,7 +694,9 @@ function buildInlinePanel(note) {
   const inner = document.createElement('div');
   inner.className = 'note-inline-inner';
 
-  if (state.expandedNoteId === note.id) {
+  if (normalizeNoteType(note.noteType) === 'book') {
+    buildBookInlinePanel(note, inner);
+  } else if (state.expandedNoteId === note.id) {
     const textarea = document.createElement('textarea');
     textarea.className = 'note-inline-content';
     textarea.value = note.content;
@@ -690,6 +733,97 @@ function buildInlinePanel(note) {
   panel.append(inner);
   wrap.append(panel);
   return wrap;
+}
+
+// 「本」タイプ専用: タイトルのみ→(タップ)概要→(タップ)概要+章一覧、の3段階表示。
+// 概要は既存の note.content フィールドをそのまま流用し(スキーマ追加なし)、
+// 章だけ note.chapters の新フィールドを使う。
+function buildBookInlinePanel(note, inner) {
+  const level = state.bookLevel[note.id] || 0;
+  if (level < 1) return;
+
+  const overviewLabel = document.createElement('label');
+  overviewLabel.className = 'inline-field-label';
+  overviewLabel.textContent = '概要';
+  inner.append(overviewLabel);
+
+  const overview = document.createElement('textarea');
+  overview.className = 'note-inline-content book-overview';
+  overview.value = note.content;
+  overview.placeholder = 'この本の概要・あらすじ・まとめ';
+  overview.rows = 1;
+  const autoResize = () => {
+    overview.style.height = 'auto';
+    overview.style.height = `${overview.scrollHeight}px`;
+  };
+  overview.addEventListener('input', () => {
+    note.content = overview.value;
+    scheduleInlineSave(note);
+    autoResize();
+  });
+  overview.addEventListener('click', (event) => event.stopPropagation());
+  inner.append(overview);
+  requestAnimationFrame(autoResize);
+
+  if (level < 2) return;
+
+  const chapterList = document.createElement('div');
+  chapterList.className = 'chapter-list';
+
+  note.chapters.forEach((chapter, index) => {
+    const key = `${note.id}:${chapter.id}`;
+    const open = Boolean(state.chapterOpen[key]);
+
+    const row = document.createElement('div');
+    row.className = 'chapter-row';
+
+    const head = document.createElement('div');
+    head.className = 'chapter-row-head';
+    head.innerHTML =
+      `<span class="chapter-n">${index + 1}</span>` +
+      `<span class="chapter-t"></span>` +
+      `<span class="chapter-caret${open ? ' open' : ''}">▶</span>`;
+    head.querySelector('.chapter-t').textContent = chapter.title || '無題の章';
+    head.addEventListener('click', (event) => {
+      event.stopPropagation();
+      state.chapterOpen[key] = !open;
+      renderLibrary();
+    });
+    row.append(head);
+
+    if (open) {
+      const body = document.createElement('div');
+      body.className = 'chapter-row-body';
+      const ta = document.createElement('textarea');
+      ta.value = chapter.content;
+      ta.placeholder = '自由に書いてください';
+      ta.addEventListener('input', () => {
+        chapter.content = ta.value;
+        scheduleInlineSave(note);
+      });
+      ta.addEventListener('click', (event) => event.stopPropagation());
+      body.append(ta);
+      row.append(body);
+    }
+
+    chapterList.append(row);
+  });
+
+  const addChapterBtn = document.createElement('button');
+  addChapterBtn.type = 'button';
+  addChapterBtn.className = 'add-chapter-btn';
+  addChapterBtn.textContent = '＋ 大項目を追加';
+  addChapterBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const title = prompt('大項目(章)のタイトル');
+    if (!title) return;
+    note.chapters.push({ id: `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title, content: '' });
+    scheduleInlineSave(note);
+    renderLibrary();
+  });
+  chapterList.append(addChapterBtn);
+
+  inner.append(chapterList);
 }
 
 function updateEditorButtons(note) {
@@ -733,6 +867,38 @@ async function canCreateNewNote() {
 
 function showUpgradePrompt() {
   showToast(`無料版は${FREE_NOTE_LIMIT}件までです。アップグレードは近日対応予定です。`);
+}
+
+async function handleAddButtonClick() {
+  if (state.activeType === 'movie') {
+    await openEditor(null, { noteType: 'movie', content: MOVIE_TEMPLATE });
+    return;
+  }
+  if (state.activeType === 'book') {
+    await createBookNoteInline();
+    return;
+  }
+  await openEditor(null, { noteType: 'knowledge' });
+}
+
+// 「本」は概要・章立てを一覧上のインライン展開で入力する運用のため、
+// 他タイプと違って既存の全画面エディタ(openEditor)は経由しない。
+async function createBookNoteInline() {
+  if (!(await canCreateNewNote())) {
+    showUpgradePrompt();
+    return;
+  }
+  const title = prompt('本のタイトル');
+  if (!title) return;
+  const note = createNote({ title, noteType: 'book' });
+  state.notes.push(note);
+  await putNote(note);
+  state.bookLevel[note.id] = 1;
+  state.query = '';
+  els.searchInput.value = '';
+  state.selectedTags.clear();
+  renderLibrary();
+  showToast('保存しました');
 }
 
 async function openEditor(noteId = null, seed = null) {
@@ -1328,7 +1494,20 @@ function wireEvents() {
     state.sort = els.sortSelect.value;
     renderLibrary();
   });
-  els.addButton.addEventListener('click', () => openEditor());
+  els.addButton.addEventListener('click', handleAddButtonClick);
+  if (els.bottomTabbar) {
+    for (const btn of els.bottomTabbar.querySelectorAll('button')) {
+      btn.addEventListener('click', () => {
+        const type = normalizeNoteType(btn.dataset.noteType);
+        if (state.activeType === type) return;
+        state.activeType = type;
+        state.query = '';
+        els.searchInput.value = '';
+        state.selectedTags.clear();
+        renderLibrary();
+      });
+    }
+  }
   // quickCaptureButton/clipboardButtonのUIは廃止(＋は右下のFABのみ)。
   // クイック追加ダイアログ自体は共有(share target)からの受け口として残す。
   els.quickCancelButton.addEventListener('click', closeQuickCapture);
