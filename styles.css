@@ -94,7 +94,21 @@ button { cursor: pointer; }
 .account-avatar-placeholder { width: 60%; height: 60%; fill: var(--muted); }
 .account-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 999px; }
 
-.library-view { padding: 8px 14px calc(104px + env(safe-area-inset-bottom)); }
+.library-view { padding: 8px 14px calc(104px + 60px + env(safe-area-inset-bottom)); }
+
+.bottom-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 12;
+  display: flex; background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(18px); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-tabbar button {
+  flex: 1; min-width: 0; border: 0; background: none; padding: 9px 0 7px;
+  font-size: .72rem; font-weight: 720; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.bottom-tabbar button .tab-ico { font-size: 1.3rem; line-height: 1; }
+.bottom-tabbar button.active { color: var(--text); }
 .search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
 .search-box {
   min-width: 0; display: flex; gap: 8px; align-items: center; padding: 0 12px;
@@ -171,7 +185,7 @@ button { cursor: pointer; }
 .note-card.selected { box-shadow: 0 0 0 2px var(--accent, var(--text)) inset; }
 
 .selection-bar {
-  position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+  position: fixed; left: 16px; right: 16px; bottom: calc(16px + 60px + env(safe-area-inset-bottom));
   z-index: 13; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
   padding: 10px 12px 10px 16px; box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -203,8 +217,27 @@ button { cursor: pointer; }
   line-height: 1.55; box-sizing: border-box;
 }
 
+.inline-field-label { display: block; font-size: .72rem; font-weight: 750; color: var(--muted); margin: 2px 0 5px; }
+.chapter-list { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; display: grid; gap: 6px; }
+.chapter-row { background: var(--surface-2); border-radius: 10px; overflow: hidden; }
+.chapter-row-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.chapter-row-head .chapter-n { font-size: .78rem; font-weight: 800; color: var(--accent); flex: 0 0 auto; }
+.chapter-row-head .chapter-t { flex: 1; min-width: 0; font-size: .9rem; font-weight: 720; overflow-wrap: anywhere; }
+.chapter-row-head .chapter-caret { color: var(--muted); font-size: .72rem; transition: transform .15s; flex: 0 0 auto; }
+.chapter-row-head .chapter-caret.open { transform: rotate(90deg); }
+.chapter-row-body { padding: 0 12px 12px; }
+.chapter-row-body textarea {
+  width: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--text); padding: 8px; font: inherit; font-size: .86rem;
+  line-height: 1.5; resize: vertical; outline: 0; box-sizing: border-box;
+}
+.add-chapter-btn {
+  margin-top: 2px; width: 100%; padding: 10px; border: 1px dashed var(--line); border-radius: 10px;
+  background: transparent; color: var(--muted); font-size: .84rem; font-weight: 720;
+}
+
 .fab {
-  position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 12;
+  position: fixed; right: 20px; bottom: calc(20px + 60px + env(safe-area-inset-bottom)); z-index: 12;
   width: 60px; height: 60px; border: 0; border-radius: 21px; background: var(--text); color: var(--bg);
   font-size: 2rem; line-height: 1; box-shadow: var(--shadow);
 }
@@ -267,7 +300,7 @@ button { cursor: pointer; }
 #signInButton, #signOutButton { width: 100%; }
 .privacy-note { margin-top: 22px; padding: 12px; border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: .78rem; }
 
-.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); white-space: nowrap; }
+.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + 60px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); white-space: nowrap; }
 
 @media (min-width: 760px) {
   .app-shell { padding: 0 20px; }

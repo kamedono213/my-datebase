@@ -41,6 +41,21 @@ function compareByTagOrder(a, b, tagOrder = []) {
   return a.title.localeCompare(b.title, 'ja', { sensitivity: 'base' });
 }
 
+const NOTE_TYPES = ['knowledge', 'movie', 'book'];
+
+export function normalizeNoteType(value) {
+  return NOTE_TYPES.includes(value) ? value : 'knowledge';
+}
+
+function normalizeChapters(chapters) {
+  if (!Array.isArray(chapters)) return [];
+  return chapters.map((ch) => ({
+    id: String(ch?.id ?? `ch-${Math.random().toString(36).slice(2, 10)}`),
+    title: String(ch?.title ?? ''),
+    content: String(ch?.content ?? ''),
+  }));
+}
+
 export function createNote(input = {}, now = Date.now()) {
   return {
     id: input.id || makeId(now),
@@ -54,13 +69,19 @@ export function createNote(input = {}, now = Date.now()) {
     deletedAt: input.deletedAt == null ? null : Number(input.deletedAt),
     relatedIds: Array.isArray(input.relatedIds) ? [...new Set(input.relatedIds.map(String))] : [],
     attachments: Array.isArray(input.attachments) ? input.attachments.map((a) => ({ ...a })) : [],
+    // noteType: 既存メモは未設定(undefined)のままDBに残っているため、読み出し側は
+    // 常に normalizeNoteType(note.noteType) 経由で扱うこと(= 未設定は'knowledge'扱い)。
+    noteType: normalizeNoteType(input.noteType),
+    // chapters: 'book'タイプのみ使用。他タイプは常に空配列。
+    chapters: normalizeChapters(input.chapters),
   };
 }
 
 export function matchesSearch(note, query = '') {
   const q = String(query).trim().toLocaleLowerCase();
   if (!q) return true;
-  const haystack = [note.title, note.content, ...(note.tags ?? [])]
+  const chapterText = (note.chapters ?? []).flatMap((ch) => [ch.title, ch.content]);
+  const haystack = [note.title, note.content, ...(note.tags ?? []), ...chapterText]
     .join('\n')
     .toLocaleLowerCase();
   return q.split(/\s+/).every((token) => haystack.includes(token));
@@ -84,6 +105,7 @@ export function filterAndSortNotes(notes, options = {}) {
     tagOrder = [],
     includeDeleted = false,
     onlyDeleted = false,
+    noteType = null,
   } = options;
   const normalizedFilterTags = normalizeTags(tags).map((tag) => tag.toLocaleLowerCase());
 
@@ -92,6 +114,7 @@ export function filterAndSortNotes(notes, options = {}) {
       const deleted = note.deletedAt != null;
       if (onlyDeleted && !deleted) return false;
       if (!onlyDeleted && !includeDeleted && deleted) return false;
+      if (noteType && (note.noteType || 'knowledge') !== noteType) return false;
       if (!matchesSearch(note, query)) return false;
       if (normalizedFilterTags.length) {
         const noteTags = (note.tags ?? []).map((tag) => String(tag).toLocaleLowerCase());
