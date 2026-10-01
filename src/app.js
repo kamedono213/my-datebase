@@ -746,6 +746,13 @@ function buildInlinePanel(note) {
     const autoResize = () => {
       textarea.style.height = 'auto';
       textarea.style.height = `${textarea.scrollHeight}px`;
+      // 高さを変えるたびにページ全体のレイアウトがずれ、ソフトキーボードが
+      // 出ている状態だと今まさに打っている行が隠れてしまう(「入力すると表示が
+      // ずれる」原因)。入力中(フォーカス中)は高さを変えた直後にカーソル位置
+      // (=このテキストエリア)を画面内に戻す。
+      if (document.activeElement === textarea) {
+        textarea.scrollIntoView({ block: 'nearest' });
+      }
     };
     textarea.addEventListener('input', () => {
       note.content = textarea.value;
@@ -796,6 +803,9 @@ function buildBookInlinePanel(note, inner) {
   const autoResize = () => {
     overview.style.height = 'auto';
     overview.style.height = `${overview.scrollHeight}px`;
+    if (document.activeElement === overview) {
+      overview.scrollIntoView({ block: 'nearest' });
+    }
   };
   overview.addEventListener('input', () => {
     note.content = overview.value;
