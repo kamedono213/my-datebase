@@ -190,7 +190,13 @@ function updateBottomTabbar() {
 function buildStarRating(note) {
   const wrap = document.createElement('span');
   wrap.className = 'star-rating';
-  wrap.addEventListener('click', (event) => event.stopPropagation());
+  // タイトル行(.note-title-row)はタップ展開やスワイプ削除をpointerdown/pointermove/
+  // pointerupで検知しているため、clickだけ止めても星の操作がその下のジェスチャーに
+  // 伝わってしまい、意図せずタイトルが展開されていた。星エリア全体でポインター系の
+  // イベントも含めて止める。
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'click']) {
+    wrap.addEventListener(type, (event) => event.stopPropagation());
+  }
 
   for (let i = 1; i <= 5; i++) {
     const star = document.createElement('button');
