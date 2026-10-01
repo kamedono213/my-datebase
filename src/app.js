@@ -101,7 +101,9 @@ const state = {
   selectionMode: false,
   selectedNoteIds: new Set(),
   bulkTagPicks: new Set(),
-  tagRegistry: [], // [{ name, color }] 作成時に色を選べるタグの一覧
+  // タグの登録一覧はノートの種類ごとに別々に持つ({ name, color }[])。
+  // 知識のタグ(生物など)が映画のタグ候補に出てきてしまうのを防ぐため。
+  tagRegistries: { knowledge: [], movie: [], book: [] },
   query: '',
   sort: 'updated',
   autosaveTimer: null,
@@ -114,21 +116,36 @@ const TAG_COLOR_SWATCHES = [
   '#4E8BC9', '#7C6FD1', '#C36FC0', '#8A8F98', '#4A4A4A',
 ];
 
-async function upsertTagInRegistry(name, color) {
-  const registry = [...state.tagRegistry];
+// 映画タブの初回起動時だけ、オーソドックスなジャンルを登録済みタグとして
+// 用意しておく(知識タブのタグとは完全に別枠)。あとから自由に追加・削除できる。
+const DEFAULT_MOVIE_TAGS = [
+  'アクション', 'コメディ', 'ドラマ', 'ホラー', 'SF', 'ファンタジー',
+  'ミステリー', 'サスペンス', '恋愛', '実話', 'アニメ', 'ドキュメンタリー',
+];
+
+// 知識タブは昔からの設定キー'tagRegistry'のまま(既存データとの互換性のため)、
+// 映画・本は別キーに分けて保存する。
+function tagRegistrySettingKey(noteType) {
+  return noteType === 'knowledge' ? 'tagRegistry' : `tagRegistry:${noteType}`;
+}
+
+async function upsertTagInRegistry(name, color, noteType = state.activeType) {
+  const type = normalizeNoteType(noteType);
+  const registry = [...(state.tagRegistries[type] || [])];
   const idx = registry.findIndex((t) => t.name.toLocaleLowerCase() === name.toLocaleLowerCase());
   if (idx >= 0) registry[idx] = { name, color };
   else registry.push({ name, color });
-  await setSetting('tagRegistry', registry);
-  state.tagRegistry = registry;
+  await setSetting(tagRegistrySettingKey(type), registry);
+  state.tagRegistries[type] = registry;
   return registry;
 }
 
 // 登録済みタグは指定した色、それ以外(バックアップ由来などの未登録タグ)は
 // 従来通りの自動配色にフォールバックする。
-function resolveTagColorMap(tagOrder) {
+function resolveTagColorMap(tagOrder, noteType = state.activeType) {
   const map = buildTagColorMap(tagOrder);
-  for (const entry of state.tagRegistry) {
+  const registry = state.tagRegistries[normalizeNoteType(noteType)] || [];
+  for (const entry of registry) {
     const match = tagOrder.find((tag) => tag.toLocaleLowerCase() === entry.name.toLocaleLowerCase());
     if (match) map[match] = entry.color;
   }
@@ -595,8 +612,8 @@ function tagChipCheck() {
 }
 
 function renderBulkTagPicker() {
-  const registryNames = state.tagRegistry.map((t) => t.name);
-  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  const registryNames = (state.tagRegistries[state.activeType] || []).map((t) => t.name);
+  const usedNames = notesInActiveTab().flatMap((note) => note.tags || []);
   const seen = new Set(registryNames.map((n) => n.toLocaleLowerCase()));
   const names = [...registryNames];
   for (const tag of usedNames) {
@@ -1011,10 +1028,14 @@ function syncInputsToNote() {
 // 登録済みタグ(＋そのメモに既についている未登録タグ)をチップで表示し、
 // タップでON/OFFできるようにする。末尾に新規タグ作成チップを置く。
 function renderTagsPicker() {
-  const registryNames = state.tagRegistry.map((t) => t.name);
+  const editingType = normalizeNoteType(currentNote()?.noteType);
+  const registryNames = (state.tagRegistries[editingType] || []).map((t) => t.name);
   // タグ作成ダイアログを経由せず、自由入力の時代に付けられたタグも候補に出す。
   // (登録済みタグ一覧だけだと、編集中のメモに元々ついていないタグは出てこなかった)
-  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  // ノートの種類をまたいでタグ候補が出ないよう、同じ種類のメモだけから集める。
+  const usedNames = state.notes
+    .filter((note) => normalizeNoteType(note.noteType) === editingType)
+    .flatMap((note) => note.tags || []);
   const seen = new Set(registryNames.map((name) => name.toLocaleLowerCase()));
   const extra = [];
   // 登録済み・既存メモ使用済みのタグで並び順を固定する。
@@ -1034,7 +1055,7 @@ function renderTagsPicker() {
     extra.push(tag);
   }
   const allNames = [...registryNames, ...extra];
-  const colorMap = resolveTagColorMap(allNames);
+  const colorMap = resolveTagColorMap(allNames, editingType);
 
   els.tagsPicker.replaceChildren();
   for (const name of allNames) {
@@ -1109,7 +1130,7 @@ function openTagCreator() {
   saveBtn.addEventListener('click', async () => {
     const [name] = normalizeTags([nameInput.value]);
     if (!name) { panel.remove(); return; }
-    await upsertTagInRegistry(name, chosenColor);
+    await upsertTagInRegistry(name, chosenColor, normalizeNoteType(currentNote()?.noteType));
     state.editingTags.add(name);
     panel.remove();
     renderTagsPicker();
@@ -1736,7 +1757,18 @@ async function init() {
     await setSetting(PRO_UNLOCKED_KEY, activeCount > FREE_NOTE_LIMIT);
   }
 
-  state.tagRegistry = await getSetting('tagRegistry', []);
+  state.tagRegistries.knowledge = await getSetting('tagRegistry', []);
+  state.tagRegistries.book = await getSetting('tagRegistry:book', []);
+  const storedMovieTags = await getSetting('tagRegistry:movie', null);
+  if (storedMovieTags === null) {
+    // 映画タブを初めて使う時だけ、オーソドックスなジャンルを登録済みタグとして
+    // 用意しておく。一度保存したら、あとはユーザーが自由に追加・削除できる。
+    const seeded = DEFAULT_MOVIE_TAGS.map((name, i) => ({ name, color: TAG_COLOR_SWATCHES[i % TAG_COLOR_SWATCHES.length] }));
+    await setSetting('tagRegistry:movie', seeded);
+    state.tagRegistries.movie = seeded;
+  } else {
+    state.tagRegistries.movie = storedMovieTags;
+  }
 
   // ゴミ箱に入って30日経ったメモは自動で完全削除する
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
