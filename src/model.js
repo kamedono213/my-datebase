@@ -74,6 +74,8 @@ export function createNote(input = {}, now = Date.now()) {
     noteType: normalizeNoteType(input.noteType),
     // chapters: 'book'タイプのみ使用。他タイプは常に空配列。
     chapters: normalizeChapters(input.chapters),
+    // rating: 'movie'タイプの5段階評価(0=未評価)。他タイプは使わない。
+    rating: Number.isInteger(input.rating) ? Math.max(0, Math.min(5, input.rating)) : 0,
   };
 }
 
@@ -93,6 +95,10 @@ function compareBase(a, b, sort) {
   if (sort === 'favorite') {
     const fav = Number(b.favorite) - Number(a.favorite);
     return fav || b.updatedAt - a.updatedAt;
+  }
+  if (sort === 'rating') {
+    const rating = (b.rating || 0) - (a.rating || 0);
+    return rating || b.updatedAt - a.updatedAt;
   }
   return b.updatedAt - a.updatedAt;
 }

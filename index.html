@@ -46,6 +46,7 @@
           <option value="title">タイトル順</option>
           <option value="tag">タブ順</option>
           <option value="favorite">お気に入り順</option>
+          <option value="rating">評価順</option>
         </select>
       </section>
 
@@ -236,7 +237,9 @@
       btn.id = 'overlayToggleButton';
       btn.setAttribute('aria-label', '常駐アイコンの切り替え');
       Object.assign(btn.style, {
-        position: 'fixed', left: '16px', bottom: '16px', zIndex: 40,
+        // 下部タブバーが増えた分、+ボタン(右下)と上下位置を揃えた左右対称の位置に置く。
+        // 以前の左下固定(16px/16px)だと知識タブのボタンと重なっていた。
+        position: 'fixed', left: '20px', bottom: 'calc(20px + 60px + env(safe-area-inset-bottom, 0px))', zIndex: 40,
         width: '48px', height: '48px', borderRadius: '999px', border: 'none',
         background: '#1c1c1c', color: '#fff', fontSize: '20px', cursor: 'pointer',
         boxShadow: '0 4px 14px rgba(0,0,0,0.25)',

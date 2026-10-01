@@ -22,11 +22,10 @@ const PRO_UNLOCKED_KEY = 'proUnlocked';
 
 const NOTE_TYPE_LABELS = { knowledge: '知識', movie: '映画', book: '本' };
 const MOVIE_TEMPLATE =
-  '■評価: ★★★☆☆\n\n' +
   '■鑑賞日: \n\n' +
-  '■あらすじ(自分の言葉で):\n\n\n' +
+  '■あらすじ:\n\n\n' +
   '■印象に残ったシーン・セリフ:\n\n\n' +
-  '■感想:\n';
+  '■感想・考察:\n';
 
 const els = {
   libraryView: $('libraryView'),
@@ -186,6 +185,31 @@ function updateBottomTabbar() {
   }
 }
 
+// 映画タイプのメモ用、タイトル行に表示する5段階の星評価。
+// タップしたところまでを塗りつぶす(例: 3個目をタップ→★3つ)。同じ星を押すと0に戻す。
+function buildStarRating(note) {
+  const wrap = document.createElement('span');
+  wrap.className = 'star-rating';
+  wrap.addEventListener('click', (event) => event.stopPropagation());
+
+  for (let i = 1; i <= 5; i++) {
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = 'star-btn';
+    star.textContent = i <= (note.rating || 0) ? '★' : '☆';
+    star.setAttribute('aria-label', `評価${i}`);
+    star.addEventListener('click', (event) => {
+      event.stopPropagation();
+      note.rating = note.rating === i ? 0 : i;
+      note.updatedAt = Date.now();
+      putNote(note);
+      renderLibrary();
+    });
+    wrap.append(star);
+  }
+  return wrap;
+}
+
 function notesInActiveTab() {
   return state.notes.filter((note) => normalizeNoteType(note.noteType) === state.activeType);
 }
@@ -312,6 +336,10 @@ function renderLibrary() {
     title.className = 'note-title';
     title.textContent = note.title.trim() || '無題';
     row.append(title);
+
+    if (normalizeNoteType(note.noteType) === 'movie') {
+      row.append(buildStarRating(note));
+    }
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
@@ -665,9 +693,10 @@ function openRowMenu(note, anchorEl) {
 function toggleInlineExpand(noteId) {
   const note = state.notes.find((item) => item.id === noteId);
   if (note && normalizeNoteType(note.noteType) === 'book') {
-    // 本タイプ: タップごとに 閉じる→概要→概要+章一覧→閉じる、と3段階で循環する。
+    // 本タイプ: 1タップで概要+章一覧を同時に開閉する(閉じる⇔開く、の2段階)。
+    // 各章の中身は、章の行を個別にタップした時だけ開く(buildBookInlinePanel側)。
     const level = state.bookLevel[noteId] || 0;
-    state.bookLevel[noteId] = (level + 1) % 3;
+    state.bookLevel[noteId] = level > 0 ? 0 : 2;
     renderLibrary();
     return;
   }

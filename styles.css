@@ -156,6 +156,8 @@ button { cursor: pointer; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tag-color) 14%, transparent);
 }
 .note-title { font-size: 1.02rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.star-rating { display: flex; align-items: center; flex: 0 0 auto; }
+.star-btn { border: 0; background: transparent; padding: 1px; font-size: 1.05rem; line-height: 1; color: var(--accent); }
 .note-edit-btn {
   flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; font-size: 1.05rem;
   padding: 4px 2px; line-height: 1; opacity: .65;
