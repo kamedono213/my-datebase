@@ -819,11 +819,34 @@ function buildBookInlinePanel(note, inner) {
       `<span class="chapter-t"></span>` +
       `<span class="chapter-caret${open ? ' open' : ''}">▶</span>`;
     head.querySelector('.chapter-t').textContent = chapter.title || '無題の章';
-    head.addEventListener('click', (event) => {
+
+    // 長押しで大項目(章)のタイトルを編集できるようにする。一度入れたら直せない、
+    // という不便さの解消。短いタップは今まで通り開閉。
+    let chapterLongPressTimer = null;
+    let chapterLongPressTriggered = false;
+    head.addEventListener('pointerdown', () => {
+      chapterLongPressTriggered = false;
+      chapterLongPressTimer = setTimeout(() => {
+        chapterLongPressTriggered = true;
+        if (navigator.vibrate) navigator.vibrate(12);
+        const newTitle = prompt('大項目のタイトルを編集', chapter.title);
+        if (newTitle !== null && newTitle.trim()) {
+          chapter.title = newTitle.trim();
+          scheduleInlineSave(note);
+          renderLibrary();
+        }
+      }, 500);
+    });
+    head.addEventListener('pointerup', (event) => {
       event.stopPropagation();
+      clearTimeout(chapterLongPressTimer);
+      if (chapterLongPressTriggered) return;
       state.chapterOpen[key] = !open;
       renderLibrary();
     });
+    head.addEventListener('pointerleave', () => clearTimeout(chapterLongPressTimer));
+    head.addEventListener('pointercancel', () => clearTimeout(chapterLongPressTimer));
+    head.addEventListener('click', (event) => event.stopPropagation());
     row.append(head);
 
     if (open) {
