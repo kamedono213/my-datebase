@@ -49,6 +49,10 @@ html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--te
 body { min-height: 100dvh; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input { -webkit-tap-highlight-color: transparent; }
+/* div等のタップ可能領域(カード・タイトル行・章の見出しなど)は、ボタンと
+   違ってブラウザ標準のタップ時ハイライト(青い塗りつぶし)対象から外れて
+   いないため、ここでまとめて無効化する。 */
+.note-card, .note-title-row, .chapter-row-head, .file-btn { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 
 .app-shell { min-height: 100dvh; max-width: 1120px; margin: 0 auto; }
