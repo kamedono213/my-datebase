@@ -840,7 +840,7 @@ function buildBookInlinePanel(note, inner) {
 
   note.chapters.forEach((chapter, index) => {
     const key = `${note.id}:${chapter.id}`;
-    const open = Boolean(state.chapterOpen[key]);
+    let open = Boolean(state.chapterOpen[key]);
 
     const row = document.createElement('div');
     row.className = 'chapter-row';
@@ -852,6 +852,23 @@ function buildBookInlinePanel(note, inner) {
       `<span class="chapter-t"></span>` +
       `<span class="chapter-caret${open ? ' open' : ''}">▶</span>`;
     head.querySelector('.chapter-t').textContent = chapter.title || '無題の章';
+
+    // 章の中身(本文欄)は開閉に関わらず常に作っておき、hiddenで出し入れする。
+    // 以前はrenderLibrary()で一覧全体を作り直して開閉していたため、他の章や
+    // 概要欄まで含めて要素が全部作り直され、開閉アニメーションがやり直しに
+    // なって画面がチラついていた。
+    const body = document.createElement('div');
+    body.className = 'chapter-row-body';
+    body.hidden = !open;
+    const ta = document.createElement('textarea');
+    ta.value = chapter.content;
+    ta.placeholder = '自由に書いてください';
+    ta.addEventListener('input', () => {
+      chapter.content = ta.value;
+      scheduleInlineSave(note);
+    });
+    ta.addEventListener('click', (event) => event.stopPropagation());
+    body.append(ta);
 
     // 長押しで大項目(章)のタイトルを編集できるようにする。一度入れたら直せない、
     // という不便さの解消。短いタップは今まで通り開閉。
@@ -866,7 +883,7 @@ function buildBookInlinePanel(note, inner) {
         if (newTitle !== null && newTitle.trim()) {
           chapter.title = newTitle.trim();
           scheduleInlineSave(note);
-          renderLibrary();
+          head.querySelector('.chapter-t').textContent = chapter.title;
         }
       }, 500);
     });
@@ -874,28 +891,15 @@ function buildBookInlinePanel(note, inner) {
       event.stopPropagation();
       clearTimeout(chapterLongPressTimer);
       if (chapterLongPressTriggered) return;
-      state.chapterOpen[key] = !open;
-      renderLibrary();
+      open = !open;
+      state.chapterOpen[key] = open;
+      body.hidden = !open;
+      head.querySelector('.chapter-caret').classList.toggle('open', open);
     });
     head.addEventListener('pointerleave', () => clearTimeout(chapterLongPressTimer));
     head.addEventListener('pointercancel', () => clearTimeout(chapterLongPressTimer));
     head.addEventListener('click', (event) => event.stopPropagation());
-    row.append(head);
-
-    if (open) {
-      const body = document.createElement('div');
-      body.className = 'chapter-row-body';
-      const ta = document.createElement('textarea');
-      ta.value = chapter.content;
-      ta.placeholder = '自由に書いてください';
-      ta.addEventListener('input', () => {
-        chapter.content = ta.value;
-        scheduleInlineSave(note);
-      });
-      ta.addEventListener('click', (event) => event.stopPropagation());
-      body.append(ta);
-      row.append(body);
-    }
+    row.append(head, body);
 
     chapterList.append(row);
   });
