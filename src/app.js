@@ -1331,6 +1331,14 @@ function openQuizNote() {
 // ブリッジが無いため黙って何も起きない。ネイティブ側ではFilesystem(書き込み)
 // +Share(共有シート)のCapacitorプラグインを使う確実な経路にする。
 // ブラウザ/PWA(GitHub Pages版)では従来通り<a download>で動くので維持する。
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}が${ms / 1000}秒たっても応答しませんでした`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function downloadJson(data) {
   const date = new Date().toISOString().slice(0, 10);
   const filename = `knowledge-backup-${date}.json`;
@@ -1338,17 +1346,25 @@ async function downloadJson(data) {
 
   const BackupExport = window.Capacitor?.Plugins?.BackupExport;
   const isNative = Boolean(window.Capacitor?.isNativePlatform?.());
+  console.log(`[export] isNative=${isNative} BackupExportFound=${Boolean(BackupExport)} bytes=${text.length}`);
 
   if (isNative && BackupExport) {
-    try {
-      await BackupExport.saveToDownloads({ filename, content: text });
-      return;
-    } catch (error) {
-      // 原因を特定するため、一旦エラーの中身をそのまま出す(落ち着いたら簡潔なメッセージに戻す)。
-      const detail = error?.message || String(error);
-      alert(`書き出しに失敗しました:\n${detail}`);
-      return;
-    }
+    // ネイティブ側が call.resolve/rejectを一度も呼ばずに固まるケースがあると
+    // ここが永久に無反応になる(「反応しない」不具合の有力な原因の一つ)ため、
+    // 一定時間で必ずエラーとして扱う。
+    await withTimeout(
+      BackupExport.saveToDownloads({ filename, content: text }),
+      15000,
+      '書き出し処理',
+    );
+    return;
+  }
+
+  // ネイティブアプリなのにBackupExportプラグインが見つからない場合は、
+  // Blobダウンロードが効かないことが分かっているので、ここで明示的に失敗させる
+  // (「反応しない」ではなく、エラーとして見える化する)。
+  if (isNative) {
+    throw new Error('BackupExportプラグインが見つかりません(アプリの再インストールが必要かもしれません)');
   }
 
   const blob = new Blob([text], { type: 'application/json' });
@@ -1464,6 +1480,8 @@ async function goHome() {
 }
 
 async function handleImport(file) {
+  // 書き出し同様、設定画面は<dialog>(ブラウザの最前面レイヤー)の中にあるため、
+  // トーストは裏に隠れて見えない。結果は必ずalert(これは<dialog>より前面に出る)で示す。
   try {
     const data = JSON.parse(await file.text());
     await importData(data);
@@ -1476,10 +1494,10 @@ async function handleImport(file) {
     state.query = '';
     els.searchInput.value = '';
     renderLibrary();
-    showToast('バックアップを読み込みました');
+    alert(`読み込みました(${state.notes.filter((n) => n.deletedAt == null).length}件)`);
   } catch (error) {
-    console.error(error);
-    showToast('バックアップを読み込めませんでした');
+    console.error('[import] failed', error);
+    alert(`読み込みに失敗しました:\n${error?.message || error}`);
   } finally {
     els.importInput.value = '';
   }
@@ -1552,8 +1570,28 @@ function wireEvents() {
     await setSetting('theme', els.themeSelect.value);
   });
   els.exportButton.addEventListener('click', async () => {
-    await downloadJson(await exportData());
-    showToast('ダウンロードフォルダに保存しました');
+    // 「書き出す」が無反応に見える不具合の調査用。exportData()自体が失敗した場合や、
+    // 添付画像が多くバックアップが巨大になった場合も、必ず何かしらの表示が出るようにする。
+    // 結果はトースト(設定画面は<dialog>でブラウザの最前面レイヤーに乗るため、
+    // 普通の要素であるトーストは開いている間ずっと裏に隠れて見えない)ではなく、
+    // ダイアログ自身の中にあるボタンのラベルで示す。
+    els.exportButton.disabled = true;
+    const originalLabel = els.exportButton.textContent;
+    els.exportButton.textContent = '書き出し中…';
+    try {
+      const data = await exportData();
+      const sizeMb = JSON.stringify(data).length / (1024 * 1024);
+      console.log(`[export] notes=${data.notes.length} size=${sizeMb.toFixed(2)}MB`);
+      await downloadJson(data);
+      els.exportButton.textContent = `✓ 保存しました(${data.notes.length}件)`;
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+    } catch (error) {
+      console.error('[export] failed', error);
+      alert(`書き出しに失敗しました:\n${error?.message || error}`);
+    } finally {
+      els.exportButton.disabled = false;
+      els.exportButton.textContent = originalLabel;
+    }
   });
   els.importInput.addEventListener('change', () => {
     const [file] = els.importInput.files;
