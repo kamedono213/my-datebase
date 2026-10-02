@@ -866,6 +866,7 @@ function buildBookInlinePanel(note, inner) {
     ta.addEventListener('input', () => {
       chapter.content = ta.value;
       scheduleInlineSave(note);
+      if (document.activeElement === ta) keepFocusedFieldVisible();
     });
     ta.addEventListener('click', (event) => event.stopPropagation());
     body.append(ta);
@@ -1602,11 +1603,58 @@ async function handleImport(file) {
   }
 }
 
-// ソフトキーボード表示中、入力中の要素がキーボードに隠れないように画面をスクロールする。
-// scrollIntoView()はレイアウトビューポート基準の計算をするため、キーボード表示時に
-// レイアウトビューポート自体は縮まないブラウザ(iOS Safari等)では、キーボードに隠れた
-// 部分を正しく検知できない。実際にキーボードの分だけ縮むvisualViewportを基準に
-// 隠れているかどうかを計算し、隠れている分だけ正確にスクロールする。
+// 長文のtextarea(自動で高さが伸び、内部スクロールしないタイプ)で、要素全体の
+// 矩形の下端ではなく「実際にキャレット(カーソル)がある行」の画面上の位置を
+// 割り出す。長文になるほど要素全体の高さと画面の高さは乖離していくため、
+// 要素の下端を基準にすると「入力している行」とズレた位置を基準にスクロール
+// してしまう(=入力中の行が見えないまま・あるいは無駄に動き続ける原因)。
+// 隠しミラー要素に同じフォント・幅・パディングを複製し、キャレットまでの
+// テキストを流し込んでその位置を測る、という標準的な手法。
+function getCaretClientRect(textarea) {
+  const mirror = document.createElement('div');
+  const cs = getComputedStyle(textarea);
+  const props = [
+    'boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', 'letterSpacing',
+    'lineHeight', 'textAlign', 'textIndent', 'textTransform',
+  ];
+  for (const prop of props) mirror.style[prop] = cs[prop];
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.style.whiteSpace = 'pre-wrap';
+  mirror.style.wordWrap = 'break-word';
+  mirror.style.overflowWrap = 'break-word';
+  mirror.style.top = '0';
+  mirror.style.left = '-9999px';
+  mirror.style.height = 'auto';
+
+  const caretIndex = textarea.selectionEnd ?? textarea.value.length;
+  mirror.append(document.createTextNode(textarea.value.slice(0, caretIndex)));
+  const marker = document.createElement('span');
+  marker.textContent = textarea.value.slice(caretIndex) || '.';
+  mirror.append(marker);
+  document.body.append(mirror);
+  const markerTop = marker.offsetTop;
+  const lineHeight = parseFloat(cs.lineHeight) || marker.offsetHeight || 16;
+  document.body.removeChild(mirror);
+
+  const rect = textarea.getBoundingClientRect();
+  // 自動で高さが伸びるtextareaは内部スクロールしない(scrollTopは常に0)が、
+  // 高さ固定でリサイズ可能な章の本文欄などは内部スクロールしうるため、
+  // scrollTop分を差し引いて実際の画面上位置に補正する。
+  const top = rect.top + markerTop - textarea.scrollTop;
+  return { top, bottom: top + lineHeight };
+}
+
+// ソフトキーボード表示中、入力中の要素(特にキャレットのある行)がキーボードに
+// 隠れないように画面をスクロールする。scrollIntoView()はレイアウトビューポート
+// 基準の計算をするため、キーボード表示時にレイアウトビューポート自体は縮まない
+// ブラウザ(iOS Safari等)では、キーボードに隠れた部分を正しく検知できない。
+// 実際にキーボードの分だけ縮むvisualViewportを基準に隠れているかどうかを計算し、
+// 隠れている分だけ正確にスクロールする。アニメーション(smooth)はタイピング中に
+// 連続で呼ばれると前のアニメーションと競合して画面が勝手に揺れる原因になるため、
+// 毎回その場で位置を合わせる即時スクロールにしている。
 function keepFocusedFieldVisible() {
   const el = document.activeElement;
   if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
@@ -1614,11 +1662,11 @@ function keepFocusedFieldVisible() {
   const viewTop = vv ? vv.offsetTop : 0;
   const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   const margin = 16;
-  const rect = el.getBoundingClientRect();
-  if (rect.bottom > viewBottom - margin) {
-    window.scrollBy({ top: rect.bottom - (viewBottom - margin), behavior: 'smooth' });
-  } else if (rect.top < viewTop + margin) {
-    window.scrollBy({ top: rect.top - (viewTop + margin), behavior: 'smooth' });
+  const caretRect = el.tagName === 'TEXTAREA' ? getCaretClientRect(el) : el.getBoundingClientRect();
+  if (caretRect.bottom > viewBottom - margin) {
+    window.scrollBy(0, caretRect.bottom - (viewBottom - margin));
+  } else if (caretRect.top < viewTop + margin) {
+    window.scrollBy(0, caretRect.top - (viewTop + margin));
   }
 }
 
@@ -1636,7 +1684,6 @@ function wireKeyboardAvoidance() {
     window.visualViewport.addEventListener('scroll', keepFocusedFieldVisible);
   }
 }
-
 function wireEvents() {
   wireKeyboardAvoidance();
   els.searchInput.addEventListener('input', () => {
