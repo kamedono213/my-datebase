@@ -768,7 +768,7 @@ function buildInlinePanel(note) {
       // ずれる」原因)。入力中(フォーカス中)は高さを変えた直後にカーソル位置
       // (=このテキストエリア)を画面内に戻す。
       if (document.activeElement === textarea) {
-        textarea.scrollIntoView({ block: 'nearest' });
+        keepFocusedFieldVisible();
       }
     };
     textarea.addEventListener('input', () => {
@@ -821,7 +821,7 @@ function buildBookInlinePanel(note, inner) {
     overview.style.height = 'auto';
     overview.style.height = `${overview.scrollHeight}px`;
     if (document.activeElement === overview) {
-      overview.scrollIntoView({ block: 'nearest' });
+      keepFocusedFieldVisible();
     }
   };
   overview.addEventListener('input', () => {
@@ -1602,7 +1602,43 @@ async function handleImport(file) {
   }
 }
 
+// ソフトキーボード表示中、入力中の要素がキーボードに隠れないように画面をスクロールする。
+// scrollIntoView()はレイアウトビューポート基準の計算をするため、キーボード表示時に
+// レイアウトビューポート自体は縮まないブラウザ(iOS Safari等)では、キーボードに隠れた
+// 部分を正しく検知できない。実際にキーボードの分だけ縮むvisualViewportを基準に
+// 隠れているかどうかを計算し、隠れている分だけ正確にスクロールする。
+function keepFocusedFieldVisible() {
+  const el = document.activeElement;
+  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
+  const vv = window.visualViewport;
+  const viewTop = vv ? vv.offsetTop : 0;
+  const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const margin = 16;
+  const rect = el.getBoundingClientRect();
+  if (rect.bottom > viewBottom - margin) {
+    window.scrollBy({ top: rect.bottom - (viewBottom - margin), behavior: 'smooth' });
+  } else if (rect.top < viewTop + margin) {
+    window.scrollBy({ top: rect.top - (viewTop + margin), behavior: 'smooth' });
+  }
+}
+
+// アプリ全体のinput/textareaに効くよう、個別の要素ごとではなくfocusin委譲+
+// visualViewportの変化で一括対応する。キーボードが開くアニメーションの途中・
+// 完了後の両方で正しい位置に合わせるため、少し間を空けて2回呼ぶ。
+function wireKeyboardAvoidance() {
+  document.addEventListener('focusin', (event) => {
+    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
+    setTimeout(keepFocusedFieldVisible, 50);
+    setTimeout(keepFocusedFieldVisible, 350);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', keepFocusedFieldVisible);
+    window.visualViewport.addEventListener('scroll', keepFocusedFieldVisible);
+  }
+}
+
 function wireEvents() {
+  wireKeyboardAvoidance();
   els.searchInput.addEventListener('input', () => {
     state.query = els.searchInput.value;
     renderLibrary();
