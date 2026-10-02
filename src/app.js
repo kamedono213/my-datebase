@@ -1,4 +1,4 @@
-import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags } from './model.js';
+import { buildTagColorMap, createNote, filterAndSortNotes, normalizeTags, normalizeNoteType } from './model.js';
 import { parseSharePayload } from './share.js';
 import {
   listNotes,
@@ -19,6 +19,13 @@ const $ = (id) => document.getElementById(id);
 const DEFAULT_APP_TITLE = 'ピックノート';
 const FREE_NOTE_LIMIT = 10;
 const PRO_UNLOCKED_KEY = 'proUnlocked';
+
+const NOTE_TYPE_LABELS = { knowledge: '知識', movie: '映画', book: '本' };
+const MOVIE_TEMPLATE =
+  '■鑑賞日: \n\n' +
+  '■あらすじ:\n\n\n' +
+  '■印象に残ったシーン・セリフ:\n\n\n' +
+  '■感想・考察:\n';
 
 const els = {
   libraryView: $('libraryView'),
@@ -79,18 +86,24 @@ const els = {
   bulkTagPicker: $('bulkTagPicker'),
   bulkTagCloseButton: $('bulkTagCloseButton'),
   bulkTagApplyButton: $('bulkTagApplyButton'),
+  bottomTabbar: $('bottomTabbar'),
 };
 
 const state = {
   notes: [],
   activeNoteId: null,
   expandedNoteId: null,
+  activeType: 'knowledge', // 下部タブ: 'knowledge' | 'movie' | 'book'
+  bookLevel: {}, // noteId -> 0(閉じる)/1(概要)/2(概要+章一覧)
+  chapterOpen: {}, // `${noteId}:${chapterId}` -> bool
   selectedTags: new Set(),
   editingTags: new Set(),
   selectionMode: false,
   selectedNoteIds: new Set(),
   bulkTagPicks: new Set(),
-  tagRegistry: [], // [{ name, color }] 作成時に色を選べるタグの一覧
+  // タグの登録一覧はノートの種類ごとに別々に持つ({ name, color }[])。
+  // 知識のタグ(生物など)が映画のタグ候補に出てきてしまうのを防ぐため。
+  tagRegistries: { knowledge: [], movie: [], book: [] },
   query: '',
   sort: 'updated',
   autosaveTimer: null,
@@ -103,21 +116,36 @@ const TAG_COLOR_SWATCHES = [
   '#4E8BC9', '#7C6FD1', '#C36FC0', '#8A8F98', '#4A4A4A',
 ];
 
-async function upsertTagInRegistry(name, color) {
-  const registry = [...state.tagRegistry];
+// 映画タブの初回起動時だけ、オーソドックスなジャンルを登録済みタグとして
+// 用意しておく(知識タブのタグとは完全に別枠)。あとから自由に追加・削除できる。
+const DEFAULT_MOVIE_TAGS = [
+  'アクション', 'コメディ', 'ドラマ', 'ホラー', 'SF', 'ファンタジー',
+  'ミステリー', 'サスペンス', '恋愛', '実話', 'アニメ', 'ドキュメンタリー',
+];
+
+// 知識タブは昔からの設定キー'tagRegistry'のまま(既存データとの互換性のため)、
+// 映画・本は別キーに分けて保存する。
+function tagRegistrySettingKey(noteType) {
+  return noteType === 'knowledge' ? 'tagRegistry' : `tagRegistry:${noteType}`;
+}
+
+async function upsertTagInRegistry(name, color, noteType = state.activeType) {
+  const type = normalizeNoteType(noteType);
+  const registry = [...(state.tagRegistries[type] || [])];
   const idx = registry.findIndex((t) => t.name.toLocaleLowerCase() === name.toLocaleLowerCase());
   if (idx >= 0) registry[idx] = { name, color };
   else registry.push({ name, color });
-  await setSetting('tagRegistry', registry);
-  state.tagRegistry = registry;
+  await setSetting(tagRegistrySettingKey(type), registry);
+  state.tagRegistries[type] = registry;
   return registry;
 }
 
 // 登録済みタグは指定した色、それ以外(バックアップ由来などの未登録タグ)は
 // 従来通りの自動配色にフォールバックする。
-function resolveTagColorMap(tagOrder) {
+function resolveTagColorMap(tagOrder, noteType = state.activeType) {
   const map = buildTagColorMap(tagOrder);
-  for (const entry of state.tagRegistry) {
+  const registry = state.tagRegistries[normalizeNoteType(noteType)] || [];
+  for (const entry of registry) {
     const match = tagOrder.find((tag) => tag.toLocaleLowerCase() === entry.name.toLocaleLowerCase());
     if (match) map[match] = entry.color;
   }
@@ -167,9 +195,57 @@ function textWithLinks(container, text) {
   container.append(document.createTextNode(value.slice(last)));
 }
 
+function updateBottomTabbar() {
+  if (!els.bottomTabbar) return;
+  for (const btn of els.bottomTabbar.querySelectorAll('button')) {
+    btn.classList.toggle('active', btn.dataset.noteType === state.activeType);
+  }
+}
+
+// 映画タイプのメモ用、タイトル行に表示する5段階の星評価。
+// タップしたところまでを塗りつぶす(例: 3個目をタップ→★3つ)。同じ星を押すと0に戻す。
+function buildStarRating(note) {
+  const wrap = document.createElement('span');
+  wrap.className = 'star-rating';
+  // タイトル行(.note-title-row)はタップ展開やスワイプ削除をpointerdown/pointermove/
+  // pointerupで検知しているため、clickだけ止めても星の操作がその下のジェスチャーに
+  // 伝わってしまい、意図せずタイトルが展開されていた。星エリア全体でポインター系の
+  // イベントも含めて止める。
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'click']) {
+    wrap.addEventListener(type, (event) => event.stopPropagation());
+  }
+
+  for (let i = 1; i <= 5; i++) {
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = 'star-btn';
+    star.textContent = i <= (note.rating || 0) ? '★' : '☆';
+    star.setAttribute('aria-label', `評価${i}`);
+    star.addEventListener('click', (event) => {
+      event.stopPropagation();
+      note.rating = note.rating === i ? 0 : i;
+      note.updatedAt = Date.now();
+      putNote(note);
+      // renderLibrary()で一覧全体を作り直すと、展開中のパネルの.note-inline-wrapも
+      // 新しい要素に置き換わり、.openクラスがrequestAnimationFrameで付け直される
+      // ため、開閉アニメーションが最初からやり直しになって「一瞬閉じて開く」ように
+      // 見えてしまう。星の見た目だけその場で書き換えて、再描画はしない。
+      Array.from(wrap.children).forEach((s, idx) => {
+        s.textContent = idx + 1 <= note.rating ? '★' : '☆';
+      });
+    });
+    wrap.append(star);
+  }
+  return wrap;
+}
+
+function notesInActiveTab() {
+  return state.notes.filter((note) => normalizeNoteType(note.noteType) === state.activeType);
+}
+
 function collectAllTags() {
   const counts = new Map();
-  for (const note of state.notes) {
+  for (const note of notesInActiveTab()) {
     if (note.deletedAt != null) continue;
     for (const tag of note.tags || []) counts.set(tag, (counts.get(tag) || 0) + 1);
   }
@@ -179,7 +255,7 @@ function collectAllTags() {
 function renderTagFilters(tagEntries, colorMap) {
   els.tagFilters.replaceChildren();
 
-  const allCount = state.notes.filter((note) => note.deletedAt == null).length;
+  const allCount = notesInActiveTab().filter((note) => note.deletedAt == null).length;
   const allButton = document.createElement('button');
   allButton.type = 'button';
   allButton.className = `tag-chip${state.selectedTags.size === 0 ? ' active' : ''}`;
@@ -225,7 +301,10 @@ function renderLibrary() {
     tags: [...state.selectedTags],
     sort: state.sort,
     tagOrder,
+    noteType: state.activeType,
   });
+
+  updateBottomTabbar();
 
   els.noteList.replaceChildren();
   els.resultCount.textContent = `${notes.length}件`;
@@ -234,9 +313,15 @@ function renderLibrary() {
   if (notes.length === 0 && (state.query || state.selectedTags.size)) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.innerHTML = '<strong>該当する知識がありません</strong><span>検索語やタブを変えてみてください。</span>';
+    empty.innerHTML = '<strong>該当するメモがありません</strong><span>検索語やタグを変えてみてください。</span>';
     els.noteList.append(empty);
     return;
+  }
+
+  if (notes.length === 0) {
+    const label = NOTE_TYPE_LABELS[state.activeType];
+    els.emptyState.querySelector('strong').textContent = `まだ${label}がありません`;
+    els.emptyState.querySelector('span').textContent = '右下の＋から最初のメモを作れます。';
   }
 
   for (const note of notes) {
@@ -281,6 +366,10 @@ function renderLibrary() {
     title.textContent = note.title.trim() || '無題';
     row.append(title);
 
+    if (normalizeNoteType(note.noteType) === 'movie') {
+      row.append(buildStarRating(note));
+    }
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'note-edit-btn';
@@ -299,7 +388,8 @@ function renderLibrary() {
     card.append(buildInlinePanel(note));
     els.noteList.append(card);
 
-    if (state.expandedNoteId === note.id) {
+    const isBookOpen = normalizeNoteType(note.noteType) === 'book' && (state.bookLevel[note.id] || 0) > 0;
+    if (state.expandedNoteId === note.id || isBookOpen) {
       const wrap = card.querySelector('.note-inline-wrap');
       requestAnimationFrame(() => wrap.classList.add('open'));
     }
@@ -522,8 +612,8 @@ function tagChipCheck() {
 }
 
 function renderBulkTagPicker() {
-  const registryNames = state.tagRegistry.map((t) => t.name);
-  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  const registryNames = (state.tagRegistries[state.activeType] || []).map((t) => t.name);
+  const usedNames = notesInActiveTab().flatMap((note) => note.tags || []);
   const seen = new Set(registryNames.map((n) => n.toLocaleLowerCase()));
   const names = [...registryNames];
   for (const tag of usedNames) {
@@ -630,6 +720,15 @@ function openRowMenu(note, anchorEl) {
 // タイトル行を押すとページ転換せずその場で内容を開く。中の内容欄はそのまま
 // 編集もできる(自動保存)。フルページでの編集は長押し/ペンマークのメニューから。
 function toggleInlineExpand(noteId) {
+  const note = state.notes.find((item) => item.id === noteId);
+  if (note && normalizeNoteType(note.noteType) === 'book') {
+    // 本タイプ: 1タップで概要+章一覧を同時に開閉する(閉じる⇔開く、の2段階)。
+    // 各章の中身は、章の行を個別にタップした時だけ開く(buildBookInlinePanel側)。
+    const level = state.bookLevel[noteId] || 0;
+    state.bookLevel[noteId] = level > 0 ? 0 : 2;
+    renderLibrary();
+    return;
+  }
   state.expandedNoteId = state.expandedNoteId === noteId ? null : noteId;
   renderLibrary();
 }
@@ -653,7 +752,9 @@ function buildInlinePanel(note) {
   const inner = document.createElement('div');
   inner.className = 'note-inline-inner';
 
-  if (state.expandedNoteId === note.id) {
+  if (normalizeNoteType(note.noteType) === 'book') {
+    buildBookInlinePanel(note, inner);
+  } else if (state.expandedNoteId === note.id) {
     const textarea = document.createElement('textarea');
     textarea.className = 'note-inline-content';
     textarea.value = note.content;
@@ -662,6 +763,13 @@ function buildInlinePanel(note) {
     const autoResize = () => {
       textarea.style.height = 'auto';
       textarea.style.height = `${textarea.scrollHeight}px`;
+      // 高さを変えるたびにページ全体のレイアウトがずれ、ソフトキーボードが
+      // 出ている状態だと今まさに打っている行が隠れてしまう(「入力すると表示が
+      // ずれる」原因)。入力中(フォーカス中)は高さを変えた直後にカーソル位置
+      // (=このテキストエリア)を画面内に戻す。
+      if (document.activeElement === textarea) {
+        keepFocusedFieldVisible();
+      }
     };
     textarea.addEventListener('input', () => {
       note.content = textarea.value;
@@ -690,6 +798,127 @@ function buildInlinePanel(note) {
   panel.append(inner);
   wrap.append(panel);
   return wrap;
+}
+
+// 「本」タイプ専用: タイトルのみ→(タップ)概要→(タップ)概要+章一覧、の3段階表示。
+// 概要は既存の note.content フィールドをそのまま流用し(スキーマ追加なし)、
+// 章だけ note.chapters の新フィールドを使う。
+function buildBookInlinePanel(note, inner) {
+  const level = state.bookLevel[note.id] || 0;
+  if (level < 1) return;
+
+  const overviewLabel = document.createElement('label');
+  overviewLabel.className = 'inline-field-label';
+  overviewLabel.textContent = '概要';
+  inner.append(overviewLabel);
+
+  const overview = document.createElement('textarea');
+  overview.className = 'note-inline-content book-overview';
+  overview.value = note.content;
+  overview.placeholder = 'この本の概要・あらすじ・まとめ';
+  overview.rows = 1;
+  const autoResize = () => {
+    overview.style.height = 'auto';
+    overview.style.height = `${overview.scrollHeight}px`;
+    if (document.activeElement === overview) {
+      keepFocusedFieldVisible();
+    }
+  };
+  overview.addEventListener('input', () => {
+    note.content = overview.value;
+    scheduleInlineSave(note);
+    autoResize();
+  });
+  overview.addEventListener('click', (event) => event.stopPropagation());
+  inner.append(overview);
+  requestAnimationFrame(autoResize);
+
+  if (level < 2) return;
+
+  const chapterList = document.createElement('div');
+  chapterList.className = 'chapter-list';
+
+  note.chapters.forEach((chapter, index) => {
+    const key = `${note.id}:${chapter.id}`;
+    let open = Boolean(state.chapterOpen[key]);
+
+    const row = document.createElement('div');
+    row.className = 'chapter-row';
+
+    const head = document.createElement('div');
+    head.className = 'chapter-row-head';
+    head.innerHTML =
+      `<span class="chapter-n">${index + 1}</span>` +
+      `<span class="chapter-t"></span>` +
+      `<span class="chapter-caret${open ? ' open' : ''}">▶</span>`;
+    head.querySelector('.chapter-t').textContent = chapter.title || '無題の章';
+
+    // 章の中身(本文欄)は開閉に関わらず常に作っておき、hiddenで出し入れする。
+    // 以前はrenderLibrary()で一覧全体を作り直して開閉していたため、他の章や
+    // 概要欄まで含めて要素が全部作り直され、開閉アニメーションがやり直しに
+    // なって画面がチラついていた。
+    const body = document.createElement('div');
+    body.className = 'chapter-row-body';
+    body.hidden = !open;
+    const ta = document.createElement('textarea');
+    ta.value = chapter.content;
+    ta.placeholder = '自由に書いてください';
+    ta.addEventListener('input', () => {
+      chapter.content = ta.value;
+      scheduleInlineSave(note);
+    });
+    ta.addEventListener('click', (event) => event.stopPropagation());
+    body.append(ta);
+
+    // 長押しで大項目(章)のタイトルを編集できるようにする。一度入れたら直せない、
+    // という不便さの解消。短いタップは今まで通り開閉。
+    let chapterLongPressTimer = null;
+    let chapterLongPressTriggered = false;
+    head.addEventListener('pointerdown', () => {
+      chapterLongPressTriggered = false;
+      chapterLongPressTimer = setTimeout(() => {
+        chapterLongPressTriggered = true;
+        if (navigator.vibrate) navigator.vibrate(12);
+        const newTitle = prompt('大項目のタイトルを編集', chapter.title);
+        if (newTitle !== null && newTitle.trim()) {
+          chapter.title = newTitle.trim();
+          scheduleInlineSave(note);
+          head.querySelector('.chapter-t').textContent = chapter.title;
+        }
+      }, 500);
+    });
+    head.addEventListener('pointerup', (event) => {
+      event.stopPropagation();
+      clearTimeout(chapterLongPressTimer);
+      if (chapterLongPressTriggered) return;
+      open = !open;
+      state.chapterOpen[key] = open;
+      body.hidden = !open;
+      head.querySelector('.chapter-caret').classList.toggle('open', open);
+    });
+    head.addEventListener('pointerleave', () => clearTimeout(chapterLongPressTimer));
+    head.addEventListener('pointercancel', () => clearTimeout(chapterLongPressTimer));
+    head.addEventListener('click', (event) => event.stopPropagation());
+    row.append(head, body);
+
+    chapterList.append(row);
+  });
+
+  const addChapterBtn = document.createElement('button');
+  addChapterBtn.type = 'button';
+  addChapterBtn.className = 'add-chapter-btn';
+  addChapterBtn.textContent = '＋ 大項目を追加';
+  addChapterBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const title = prompt('大項目(章)のタイトル');
+    if (!title) return;
+    note.chapters.push({ id: `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title, content: '' });
+    scheduleInlineSave(note);
+    renderLibrary();
+  });
+  chapterList.append(addChapterBtn);
+
+  inner.append(chapterList);
 }
 
 function updateEditorButtons(note) {
@@ -735,6 +964,38 @@ function showUpgradePrompt() {
   showToast(`無料版は${FREE_NOTE_LIMIT}件までです。アップグレードは近日対応予定です。`);
 }
 
+async function handleAddButtonClick() {
+  if (state.activeType === 'movie') {
+    await openEditor(null, { noteType: 'movie', content: MOVIE_TEMPLATE });
+    return;
+  }
+  if (state.activeType === 'book') {
+    await createBookNoteInline();
+    return;
+  }
+  await openEditor(null, { noteType: 'knowledge' });
+}
+
+// 「本」は概要・章立てを一覧上のインライン展開で入力する運用のため、
+// 他タイプと違って既存の全画面エディタ(openEditor)は経由しない。
+async function createBookNoteInline() {
+  if (!(await canCreateNewNote())) {
+    showUpgradePrompt();
+    return;
+  }
+  const title = prompt('本のタイトル');
+  if (!title) return;
+  const note = createNote({ title, noteType: 'book' });
+  state.notes.push(note);
+  await putNote(note);
+  state.bookLevel[note.id] = 1;
+  state.query = '';
+  els.searchInput.value = '';
+  state.selectedTags.clear();
+  renderLibrary();
+  showToast('保存しました');
+}
+
 async function openEditor(noteId = null, seed = null) {
   let note = noteId ? state.notes.find((item) => item.id === noteId) : null;
   if (!note) {
@@ -771,10 +1032,14 @@ function syncInputsToNote() {
 // 登録済みタグ(＋そのメモに既についている未登録タグ)をチップで表示し、
 // タップでON/OFFできるようにする。末尾に新規タグ作成チップを置く。
 function renderTagsPicker() {
-  const registryNames = state.tagRegistry.map((t) => t.name);
+  const editingType = normalizeNoteType(currentNote()?.noteType);
+  const registryNames = (state.tagRegistries[editingType] || []).map((t) => t.name);
   // タグ作成ダイアログを経由せず、自由入力の時代に付けられたタグも候補に出す。
   // (登録済みタグ一覧だけだと、編集中のメモに元々ついていないタグは出てこなかった)
-  const usedNames = state.notes.flatMap((note) => note.tags || []);
+  // ノートの種類をまたいでタグ候補が出ないよう、同じ種類のメモだけから集める。
+  const usedNames = state.notes
+    .filter((note) => normalizeNoteType(note.noteType) === editingType)
+    .flatMap((note) => note.tags || []);
   const seen = new Set(registryNames.map((name) => name.toLocaleLowerCase()));
   const extra = [];
   // 登録済み・既存メモ使用済みのタグで並び順を固定する。
@@ -794,7 +1059,7 @@ function renderTagsPicker() {
     extra.push(tag);
   }
   const allNames = [...registryNames, ...extra];
-  const colorMap = resolveTagColorMap(allNames);
+  const colorMap = resolveTagColorMap(allNames, editingType);
 
   els.tagsPicker.replaceChildren();
   for (const name of allNames) {
@@ -869,7 +1134,7 @@ function openTagCreator() {
   saveBtn.addEventListener('click', async () => {
     const [name] = normalizeTags([nameInput.value]);
     if (!name) { panel.remove(); return; }
-    await upsertTagInRegistry(name, chosenColor);
+    await upsertTagInRegistry(name, chosenColor, normalizeNoteType(currentNote()?.noteType));
     state.editingTags.add(name);
     panel.remove();
     renderTagsPicker();
@@ -1337,7 +1602,43 @@ async function handleImport(file) {
   }
 }
 
+// ソフトキーボード表示中、入力中の要素がキーボードに隠れないように画面をスクロールする。
+// scrollIntoView()はレイアウトビューポート基準の計算をするため、キーボード表示時に
+// レイアウトビューポート自体は縮まないブラウザ(iOS Safari等)では、キーボードに隠れた
+// 部分を正しく検知できない。実際にキーボードの分だけ縮むvisualViewportを基準に
+// 隠れているかどうかを計算し、隠れている分だけ正確にスクロールする。
+function keepFocusedFieldVisible() {
+  const el = document.activeElement;
+  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
+  const vv = window.visualViewport;
+  const viewTop = vv ? vv.offsetTop : 0;
+  const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const margin = 16;
+  const rect = el.getBoundingClientRect();
+  if (rect.bottom > viewBottom - margin) {
+    window.scrollBy({ top: rect.bottom - (viewBottom - margin), behavior: 'smooth' });
+  } else if (rect.top < viewTop + margin) {
+    window.scrollBy({ top: rect.top - (viewTop + margin), behavior: 'smooth' });
+  }
+}
+
+// アプリ全体のinput/textareaに効くよう、個別の要素ごとではなくfocusin委譲+
+// visualViewportの変化で一括対応する。キーボードが開くアニメーションの途中・
+// 完了後の両方で正しい位置に合わせるため、少し間を空けて2回呼ぶ。
+function wireKeyboardAvoidance() {
+  document.addEventListener('focusin', (event) => {
+    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
+    setTimeout(keepFocusedFieldVisible, 50);
+    setTimeout(keepFocusedFieldVisible, 350);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', keepFocusedFieldVisible);
+    window.visualViewport.addEventListener('scroll', keepFocusedFieldVisible);
+  }
+}
+
 function wireEvents() {
+  wireKeyboardAvoidance();
   els.searchInput.addEventListener('input', () => {
     state.query = els.searchInput.value;
     renderLibrary();
@@ -1346,7 +1647,20 @@ function wireEvents() {
     state.sort = els.sortSelect.value;
     renderLibrary();
   });
-  els.addButton.addEventListener('click', () => openEditor());
+  els.addButton.addEventListener('click', handleAddButtonClick);
+  if (els.bottomTabbar) {
+    for (const btn of els.bottomTabbar.querySelectorAll('button')) {
+      btn.addEventListener('click', () => {
+        const type = normalizeNoteType(btn.dataset.noteType);
+        if (state.activeType === type) return;
+        state.activeType = type;
+        state.query = '';
+        els.searchInput.value = '';
+        state.selectedTags.clear();
+        renderLibrary();
+      });
+    }
+  }
   // quickCaptureButton/clipboardButtonのUIは廃止(＋は右下のFABのみ)。
   // クイック追加ダイアログ自体は共有(share target)からの受け口として残す。
   els.quickCancelButton.addEventListener('click', closeQuickCapture);
@@ -1483,7 +1797,18 @@ async function init() {
     await setSetting(PRO_UNLOCKED_KEY, activeCount > FREE_NOTE_LIMIT);
   }
 
-  state.tagRegistry = await getSetting('tagRegistry', []);
+  state.tagRegistries.knowledge = await getSetting('tagRegistry', []);
+  state.tagRegistries.book = await getSetting('tagRegistry:book', []);
+  const storedMovieTags = await getSetting('tagRegistry:movie', null);
+  if (storedMovieTags === null) {
+    // 映画タブを初めて使う時だけ、オーソドックスなジャンルを登録済みタグとして
+    // 用意しておく。一度保存したら、あとはユーザーが自由に追加・削除できる。
+    const seeded = DEFAULT_MOVIE_TAGS.map((name, i) => ({ name, color: TAG_COLOR_SWATCHES[i % TAG_COLOR_SWATCHES.length] }));
+    await setSetting('tagRegistry:movie', seeded);
+    state.tagRegistries.movie = seeded;
+  } else {
+    state.tagRegistries.movie = storedMovieTags;
+  }
 
   // ゴミ箱に入って30日経ったメモは自動で完全削除する
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;

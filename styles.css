@@ -49,6 +49,10 @@ html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--te
 body { min-height: 100dvh; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input { -webkit-tap-highlight-color: transparent; }
+/* div等のタップ可能領域(カード・タイトル行・章の見出しなど)は、ボタンと
+   違ってブラウザ標準のタップ時ハイライト(青い塗りつぶし)対象から外れて
+   いないため、ここでまとめて無効化する。 */
+.note-card, .note-title-row, .chapter-row-head, .file-btn { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 
 .app-shell { min-height: 100dvh; max-width: 1120px; margin: 0 auto; }
@@ -94,7 +98,35 @@ button { cursor: pointer; }
 .account-avatar-placeholder { width: 60%; height: 60%; fill: var(--muted); }
 .account-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 999px; }
 
-.library-view { padding: 8px 14px calc(104px + env(safe-area-inset-bottom)); }
+.library-view { padding: 8px 14px calc(104px + 60px + env(safe-area-inset-bottom)); }
+
+.bottom-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 12;
+  display: flex; background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(18px); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-tabbar button {
+  position: relative;
+  flex: 1; min-width: 0; border: 0; background: none; padding: 9px 0 7px;
+  font-size: .72rem; font-weight: 720; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: color .15s ease;
+}
+.bottom-tabbar button .tab-ico {
+  font-size: 1.3rem; line-height: 1;
+  filter: grayscale(1) opacity(.55);
+  transition: filter .15s ease;
+}
+.bottom-tabbar button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bottom-tabbar button.active .tab-ico { filter: none; }
+.bottom-tabbar button.active::before {
+  content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 28px; height: 3px; border-radius: 0 0 4px 4px; background: var(--accent);
+}
 .search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
 .search-box {
   min-width: 0; display: flex; gap: 8px; align-items: center; padding: 0 12px;
@@ -142,6 +174,8 @@ button { cursor: pointer; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tag-color) 14%, transparent);
 }
 .note-title { font-size: 1.02rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.star-rating { display: flex; align-items: center; flex: 0 0 auto; }
+.star-btn { border: 0; background: transparent; padding: 1px; font-size: 1.05rem; line-height: 1; color: var(--accent); }
 .note-edit-btn {
   flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; font-size: 1.05rem;
   padding: 4px 2px; line-height: 1; opacity: .65;
@@ -171,7 +205,7 @@ button { cursor: pointer; }
 .note-card.selected { box-shadow: 0 0 0 2px var(--accent, var(--text)) inset; }
 
 .selection-bar {
-  position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+  position: fixed; left: 16px; right: 16px; bottom: calc(16px + 60px + env(safe-area-inset-bottom));
   z-index: 13; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
   padding: 10px 12px 10px 16px; box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -203,8 +237,27 @@ button { cursor: pointer; }
   line-height: 1.55; box-sizing: border-box;
 }
 
+.inline-field-label { display: block; font-size: .72rem; font-weight: 750; color: var(--muted); margin: 2px 0 5px; }
+.chapter-list { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; display: grid; gap: 6px; }
+.chapter-row { background: var(--surface-2); border-radius: 10px; overflow: hidden; }
+.chapter-row-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.chapter-row-head .chapter-n { font-size: .78rem; font-weight: 800; color: var(--accent); flex: 0 0 auto; }
+.chapter-row-head .chapter-t { flex: 1; min-width: 0; font-size: .9rem; font-weight: 720; overflow-wrap: anywhere; }
+.chapter-row-head .chapter-caret { color: var(--muted); font-size: .72rem; transition: transform .15s; flex: 0 0 auto; }
+.chapter-row-head .chapter-caret.open { transform: rotate(90deg); }
+.chapter-row-body { padding: 0 12px 12px; }
+.chapter-row-body textarea {
+  width: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--text); padding: 8px; font: inherit; font-size: .86rem;
+  line-height: 1.5; resize: vertical; outline: 0; box-sizing: border-box;
+}
+.add-chapter-btn {
+  margin-top: 2px; width: 100%; padding: 10px; border: 1px dashed var(--line); border-radius: 10px;
+  background: transparent; color: var(--muted); font-size: .84rem; font-weight: 720;
+}
+
 .fab {
-  position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 12;
+  position: fixed; right: 20px; bottom: calc(20px + 60px + env(safe-area-inset-bottom)); z-index: 12;
   width: 60px; height: 60px; border: 0; border-radius: 21px; background: var(--text); color: var(--bg);
   font-size: 2rem; line-height: 1; box-shadow: var(--shadow);
 }
@@ -267,7 +320,7 @@ button { cursor: pointer; }
 #signInButton, #signOutButton { width: 100%; }
 .privacy-note { margin-top: 22px; padding: 12px; border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: .78rem; }
 
-.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); white-space: nowrap; }
+.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + 60px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); white-space: nowrap; }
 
 @media (min-width: 760px) {
   .app-shell { padding: 0 20px; }
