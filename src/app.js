@@ -760,17 +760,7 @@ function buildInlinePanel(note) {
     textarea.value = note.content;
     textarea.placeholder = '内容を入力…';
     textarea.rows = 1;
-    const autoResize = () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${textarea.scrollHeight}px`;
-      // 高さを変えるたびにページ全体のレイアウトがずれ、ソフトキーボードが
-      // 出ている状態だと今まさに打っている行が隠れてしまう(「入力すると表示が
-      // ずれる」原因)。入力中(フォーカス中)は高さを変えた直後にカーソル位置
-      // (=このテキストエリア)を画面内に戻す。
-      if (document.activeElement === textarea) {
-        keepFocusedFieldVisible();
-      }
-    };
+    const autoResize = () => growAndScroll(textarea);
     textarea.addEventListener('input', () => {
       note.content = textarea.value;
       scheduleInlineSave(note);
@@ -817,13 +807,7 @@ function buildBookInlinePanel(note, inner) {
   overview.value = note.content;
   overview.placeholder = 'この本の概要・あらすじ・まとめ';
   overview.rows = 1;
-  const autoResize = () => {
-    overview.style.height = 'auto';
-    overview.style.height = `${overview.scrollHeight}px`;
-    if (document.activeElement === overview) {
-      keepFocusedFieldVisible();
-    }
-  };
+  const autoResize = () => growAndScroll(overview);
   overview.addEventListener('input', () => {
     note.content = overview.value;
     scheduleInlineSave(note);
@@ -1603,58 +1587,8 @@ async function handleImport(file) {
   }
 }
 
-// 長文のtextarea(自動で高さが伸び、内部スクロールしないタイプ)で、要素全体の
-// 矩形の下端ではなく「実際にキャレット(カーソル)がある行」の画面上の位置を
-// 割り出す。長文になるほど要素全体の高さと画面の高さは乖離していくため、
-// 要素の下端を基準にすると「入力している行」とズレた位置を基準にスクロール
-// してしまう(=入力中の行が見えないまま・あるいは無駄に動き続ける原因)。
-// 隠しミラー要素に同じフォント・幅・パディングを複製し、キャレットまでの
-// テキストを流し込んでその位置を測る、という標準的な手法。
-function getCaretClientRect(textarea) {
-  const mirror = document.createElement('div');
-  const cs = getComputedStyle(textarea);
-  const props = [
-    'boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', 'letterSpacing',
-    'lineHeight', 'textAlign', 'textIndent', 'textTransform',
-  ];
-  for (const prop of props) mirror.style[prop] = cs[prop];
-  mirror.style.position = 'absolute';
-  mirror.style.visibility = 'hidden';
-  mirror.style.whiteSpace = 'pre-wrap';
-  mirror.style.wordWrap = 'break-word';
-  mirror.style.overflowWrap = 'break-word';
-  mirror.style.top = '0';
-  mirror.style.left = '-9999px';
-  mirror.style.height = 'auto';
-
-  const caretIndex = textarea.selectionEnd ?? textarea.value.length;
-  mirror.append(document.createTextNode(textarea.value.slice(0, caretIndex)));
-  const marker = document.createElement('span');
-  marker.textContent = textarea.value.slice(caretIndex) || '.';
-  mirror.append(marker);
-  document.body.append(mirror);
-  const markerTop = marker.offsetTop;
-  const lineHeight = parseFloat(cs.lineHeight) || marker.offsetHeight || 16;
-  document.body.removeChild(mirror);
-
-  const rect = textarea.getBoundingClientRect();
-  // 自動で高さが伸びるtextareaは内部スクロールしない(scrollTopは常に0)が、
-  // 高さ固定でリサイズ可能な章の本文欄などは内部スクロールしうるため、
-  // scrollTop分を差し引いて実際の画面上位置に補正する。
-  const top = rect.top + markerTop - textarea.scrollTop;
-  return { top, bottom: top + lineHeight };
-}
-
-// ソフトキーボード表示中、入力中の要素(特にキャレットのある行)がキーボードに
-// 隠れないように画面をスクロールする。scrollIntoView()はレイアウトビューポート
-// 基準の計算をするため、キーボード表示時にレイアウトビューポート自体は縮まない
-// ブラウザ(iOS Safari等)では、キーボードに隠れた部分を正しく検知できない。
-// 実際にキーボードの分だけ縮むvisualViewportを基準に隠れているかどうかを計算し、
-// 隠れている分だけ正確にスクロールする。アニメーション(smooth)はタイピング中に
-// 連続で呼ばれると前のアニメーションと競合して画面が勝手に揺れる原因になるため、
-// 毎回その場で位置を合わせる即時スクロールにしている。
+// ソフトキーボード表示中、フォーカスした直後の要素がキーボードに隠れないように
+// 画面をスクロールする(タップした瞬間・キーボードの開閉時のみ使う簡易版)。
 function keepFocusedFieldVisible() {
   const el = document.activeElement;
   if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
@@ -1662,11 +1596,28 @@ function keepFocusedFieldVisible() {
   const viewTop = vv ? vv.offsetTop : 0;
   const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   const margin = 16;
-  const caretRect = el.tagName === 'TEXTAREA' ? getCaretClientRect(el) : el.getBoundingClientRect();
-  if (caretRect.bottom > viewBottom - margin) {
-    window.scrollBy(0, caretRect.bottom - (viewBottom - margin));
-  } else if (caretRect.top < viewTop + margin) {
-    window.scrollBy(0, caretRect.top - (viewTop + margin));
+  const rect = el.getBoundingClientRect();
+  if (rect.bottom > viewBottom - margin) {
+    window.scrollBy(0, rect.bottom - (viewBottom - margin));
+  } else if (rect.top < viewTop + margin) {
+    window.scrollBy(0, rect.top - (viewTop + margin));
+  }
+}
+
+// 自動で高さが伸びるtextareaで、入力のたびに「今回どれだけ背が伸びたか」を
+// そのまま画面のスクロール量として使う。手動の改行(Enter)はもちろん、文字数が
+// 増えて自動的に次の行へ折り返された場合も、どちらもtextareaの高さがその分
+// 伸びるので同じ仕組みでまとめて対応できる。キャレットの正確な位置を計算する
+// 必要がなく、今見えている行がそのまま同じ相対位置で見え続ける(伸びた分だけ
+// ページを一緒に押し下げるイメージ)。
+function growAndScroll(textarea) {
+  const prevHeight = textarea.offsetHeight;
+  textarea.style.height = 'auto';
+  const newHeight = textarea.scrollHeight;
+  textarea.style.height = `${newHeight}px`;
+  if (document.activeElement === textarea) {
+    const grown = newHeight - prevHeight;
+    if (grown > 0) window.scrollBy(0, grown);
   }
 }
 
