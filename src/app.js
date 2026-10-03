@@ -845,15 +845,22 @@ function buildBookInlinePanel(note, inner) {
     body.className = 'chapter-row-body';
     body.hidden = !open;
     const ta = document.createElement('textarea');
+    ta.className = 'note-inline-content';
     ta.value = chapter.content;
     ta.placeholder = '自由に書いてください';
+    ta.rows = 1;
+    const chapterAutoResize = () => growAndScroll(ta);
     ta.addEventListener('input', () => {
       chapter.content = ta.value;
       scheduleInlineSave(note);
-      if (document.activeElement === ta) keepFocusedFieldVisible();
+      chapterAutoResize();
     });
     ta.addEventListener('click', (event) => event.stopPropagation());
     body.append(ta);
+    // 開いた状態で作られた章(初期表示)は見えているのですぐ高さを合わせられるが、
+    // 閉じた状態(hidden)で作られた章はscrollHeightが測れないため、開いた瞬間
+    // (下のpointerupハンドラ)にも改めて高さを合わせ直す必要がある。
+    if (open) requestAnimationFrame(chapterAutoResize);
 
     // 長押しで大項目(章)のタイトルを編集できるようにする。一度入れたら直せない、
     // という不便さの解消。短いタップは今まで通り開閉。
@@ -880,6 +887,7 @@ function buildBookInlinePanel(note, inner) {
       state.chapterOpen[key] = open;
       body.hidden = !open;
       head.querySelector('.chapter-caret').classList.toggle('open', open);
+      if (open) requestAnimationFrame(chapterAutoResize);
     });
     head.addEventListener('pointerleave', () => clearTimeout(chapterLongPressTimer));
     head.addEventListener('pointercancel', () => clearTimeout(chapterLongPressTimer));

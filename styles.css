@@ -246,11 +246,6 @@ button { cursor: pointer; }
 .chapter-row-head .chapter-caret { color: var(--muted); font-size: .72rem; transition: transform .15s; flex: 0 0 auto; }
 .chapter-row-head .chapter-caret.open { transform: rotate(90deg); }
 .chapter-row-body { padding: 0 12px 12px; }
-.chapter-row-body textarea {
-  width: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--surface); color: var(--text); padding: 8px; font: inherit; font-size: .86rem;
-  line-height: 1.5; resize: vertical; outline: 0; box-sizing: border-box;
-}
 .add-chapter-btn {
   margin-top: 2px; width: 100%; padding: 10px; border: 1px dashed var(--line); border-radius: 10px;
   background: transparent; color: var(--muted); font-size: .84rem; font-weight: 720;
