@@ -4,4 +4,6 @@
     <string name="title_activity_main">ピックノート</string>
     <string name="package_name">com.kamedono.mydatabase</string>
     <string name="custom_url_scheme">com.kamedono.mydatabase</string>
+    <string name="widget_note_add_description">タップしてタイトル・内容・タグを入力し、新しいメモをその場で保存できます</string>
+    <string name="widget_quiz_description">タイトルをランダム出題。タップすると答え(内容)が見られます</string>
 </resources>

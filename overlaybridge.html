@@ -55,6 +55,27 @@
     })();
   };
 
+  // ホーム画面ウィジェット(1×1のランダム出題クイズ)から呼ばれる。アプリ内の「？」クイズ
+  // (openQuizNote、app.js)と同じ選び方: 削除済みを除いた全メモからランダムに1件。
+  window.__overlayRandomNote = (requestId) => {
+    (async () => {
+      try {
+        const notes = await listNotes();
+        const candidates = notes.filter((n) => n.deletedAt == null);
+        if (!candidates.length) {
+          window.AndroidBridge?.onRandomNoteResult(requestId, false, '', '');
+          return;
+        }
+        const note = candidates[Math.floor(Math.random() * candidates.length)];
+        window.AndroidBridge?.onRandomNoteResult(
+          requestId, true, (note.title || '').trim() || '無題', note.content || '(内容なし)'
+        );
+      } catch (e) {
+        window.AndroidBridge?.onRandomNoteResult(requestId, false, '', '');
+      }
+    })();
+  };
+
   window.__overlayReady = true;
 </script>
 </body>

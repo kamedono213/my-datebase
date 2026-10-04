@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/quizWidgetRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_card_rounded"
+    android:padding="4dp">
+
+    <TextView
+        android:id="@+id/quizText"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:text="？\nタップしてね"
+        android:textColor="#1c1c1c"
+        android:textSize="11sp"
+        android:maxLines="4"
+        android:ellipsize="end" />
+</FrameLayout>
