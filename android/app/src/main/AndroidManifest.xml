@@ -44,6 +44,45 @@
                 android:value="quick_note_capture_overlay" />
         </service>
 
+        <activity
+            android:name=".NoteQuickAddActivity"
+            android:theme="@style/AppTheme.Transparent"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="stateVisible|adjustResize"
+            android:exported="false" />
+
+        <activity
+            android:name=".QuizBridgeActivity"
+            android:theme="@style/AppTheme.Transparent"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
+        <receiver
+            android:name=".NoteWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/note_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".QuizWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.kamedono.mydatabase.QUIZ_TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quiz_widget_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
