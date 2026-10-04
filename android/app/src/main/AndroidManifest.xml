@@ -53,10 +53,9 @@
             android:exported="false" />
 
         <activity
-            android:name=".QuizBridgeActivity"
+            android:name=".QuizRevealActivity"
             android:theme="@style/AppTheme.Transparent"
             android:excludeFromRecents="true"
-            android:noHistory="true"
             android:taskAffinity=""
             android:exported="false" />
 
@@ -76,7 +75,6 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.kamedono.mydatabase.QUIZ_TOGGLE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
