@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knowledge-db-v7';
+const CACHE_NAME = 'knowledge-db-v8';
 const APP_SHELL = [
   './',
   './index.html',
