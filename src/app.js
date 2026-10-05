@@ -1009,7 +1009,10 @@ async function openEditor(noteId = null, seed = null) {
   updateEditorButtons(note);
   renderAttachments(note);
   showView('editor');
-  requestAnimationFrame(() => (note.title ? els.contentInput : els.titleInput).focus());
+  requestAnimationFrame(() => {
+    growAndScroll(els.contentInput);
+    (note.title ? els.contentInput : els.titleInput).focus();
+  });
 }
 
 function syncInputsToNote() {
@@ -1692,6 +1695,7 @@ function wireEvents() {
   els.appTitleInput.addEventListener('blur', saveAppTitle);
 
   for (const input of [els.titleInput, els.contentInput]) input.addEventListener('input', scheduleAutosave);
+  els.contentInput.addEventListener('input', () => growAndScroll(els.contentInput));
 
   els.favoriteButton.addEventListener('click', () => toggleFlag('favorite'));
   els.pinButton.addEventListener('click', () => toggleFlag('pinned'));
