@@ -239,13 +239,25 @@ button { cursor: pointer; }
 
 .inline-field-label { display: block; font-size: .72rem; font-weight: 750; color: var(--muted); margin: 2px 0 5px; }
 .chapter-list { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; display: grid; gap: 6px; }
-.chapter-row { background: var(--surface-2); border-radius: 10px; overflow: hidden; }
-.chapter-row-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.chapter-row { border-radius: 10px; overflow: hidden; }
+/* 左スワイプ削除: .chapter-swipe-wrapが土台、.chapter-swipe-bgが下地(ゴミ箱)、
+   .chapter-row-headが上に乗って左にドラッグされる(ノート本体の削除と同じ仕組み)。 */
+.chapter-swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; }
+.chapter-swipe-bg {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end;
+  background: var(--danger); color: #fff; padding-right: 18px; font-size: 1.05rem; border-radius: 10px;
+}
+.chapter-row-head {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer;
+  background: var(--surface-2); border-radius: 10px; touch-action: pan-y;
+}
+.chapter-row-head.swiping { transition: none; }
+.chapter-row-head:not(.swiping) { transition: transform .18s ease; }
 .chapter-row-head .chapter-n { font-size: .78rem; font-weight: 800; color: var(--accent); flex: 0 0 auto; }
 .chapter-row-head .chapter-t { flex: 1; min-width: 0; font-size: .9rem; font-weight: 720; overflow-wrap: anywhere; }
 .chapter-row-head .chapter-caret { color: var(--muted); font-size: .72rem; transition: transform .15s; flex: 0 0 auto; }
 .chapter-row-head .chapter-caret.open { transform: rotate(90deg); }
-.chapter-row-body { padding: 0 12px 12px; }
+.chapter-row-body { padding: 0 12px 12px; background: var(--surface-2); border-radius: 0 0 10px 10px; }
 .add-chapter-btn {
   margin-top: 2px; width: 100%; padding: 10px; border: 1px dashed var(--line); border-radius: 10px;
   background: transparent; color: var(--muted); font-size: .84rem; font-weight: 720;

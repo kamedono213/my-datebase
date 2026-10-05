@@ -817,6 +817,20 @@ function buildBookInlinePanel(note, inner) {
   inner.append(overview);
   requestAnimationFrame(autoResize);
 
+  if (note.attachments && note.attachments.length) {
+    const images = document.createElement('div');
+    images.className = 'note-inline-images';
+    images.addEventListener('click', (event) => event.stopPropagation());
+    for (const attachment of note.attachments) {
+      const img = document.createElement('img');
+      img.src = attachment.dataUrl;
+      img.alt = attachment.name || '添付画像';
+      img.loading = 'lazy';
+      images.append(img);
+    }
+    inner.append(images);
+  }
+
   if (level < 2) return;
 
   const chapterList = document.createElement('div');
@@ -829,6 +843,13 @@ function buildBookInlinePanel(note, inner) {
     const row = document.createElement('div');
     row.className = 'chapter-row';
 
+    const chapterSwipeWrap = document.createElement('div');
+    chapterSwipeWrap.className = 'chapter-swipe-wrap';
+    const chapterSwipeBg = document.createElement('div');
+    chapterSwipeBg.className = 'chapter-swipe-bg';
+    chapterSwipeBg.innerHTML = '<span aria-hidden="true">🗑</span>';
+    chapterSwipeWrap.append(chapterSwipeBg);
+
     const head = document.createElement('div');
     head.className = 'chapter-row-head';
     head.innerHTML =
@@ -836,6 +857,7 @@ function buildBookInlinePanel(note, inner) {
       `<span class="chapter-t"></span>` +
       `<span class="chapter-caret${open ? ' open' : ''}">▶</span>`;
     head.querySelector('.chapter-t').textContent = chapter.title || '無題の章';
+    chapterSwipeWrap.append(head);
 
     // 章の中身(本文欄)は開閉に関わらず常に作っておき、hiddenで出し入れする。
     // 以前はrenderLibrary()で一覧全体を作り直して開閉していたため、他の章や
@@ -864,11 +886,37 @@ function buildBookInlinePanel(note, inner) {
 
     // 長押しで大項目(章)のタイトルを編集できるようにする。一度入れたら直せない、
     // という不便さの解消。短いタップは今まで通り開閉。
+    // 左スワイプでの削除は、ノート本体のタイトル行(attachRowGestures)と同じ
+    // ロジック(SWIPE_REVEAL_PX/SWIPE_DELETE_PX、途中まで引くとゴミ箱が覗き、
+    // そこを超えて離すと即削除、すでに覗いてる状態でのタップでも削除確定)。
     let chapterLongPressTimer = null;
     let chapterLongPressTriggered = false;
-    head.addEventListener('pointerdown', () => {
+    let chDragging = false, chSwiping = false, chStartX = 0, chStartY = 0, chCurrentX = 0, chRestingX = 0;
+
+    function setChapterTranslate(x, animated) {
+      head.classList.toggle('swiping', !animated);
+      head.style.transform = x ? `translateX(${x}px)` : '';
+    }
+    function cancelChapterLongPress() { clearTimeout(chapterLongPressTimer); }
+    async function deleteChapter() {
+      setChapterTranslate(-400, true);
+      const idx = note.chapters.indexOf(chapter);
+      if (idx !== -1) note.chapters.splice(idx, 1);
+      note.updatedAt = Date.now();
+      await putNote(note);
+      showToast('大項目を削除しました');
+      setTimeout(renderLibrary, 160);
+    }
+
+    head.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      chStartX = event.clientX; chStartY = event.clientY;
+      chCurrentX = chRestingX;
+      chDragging = false; chSwiping = false;
       chapterLongPressTriggered = false;
+      cancelChapterLongPress();
       chapterLongPressTimer = setTimeout(() => {
+        if (chDragging) return;
         chapterLongPressTriggered = true;
         if (navigator.vibrate) navigator.vibrate(12);
         const newTitle = prompt('大項目のタイトルを編集', chapter.title);
@@ -879,20 +927,60 @@ function buildBookInlinePanel(note, inner) {
         }
       }, 500);
     });
+    head.addEventListener('pointermove', (event) => {
+      const dx = event.clientX - chStartX;
+      const dy = event.clientY - chStartY;
+      if (!chDragging) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dy) > Math.abs(dx)) return; // 縦スクロール優先
+        chDragging = true;
+        chSwiping = true;
+        cancelChapterLongPress();
+        head.setPointerCapture?.(event.pointerId);
+      }
+      if (!chSwiping) return;
+      event.preventDefault();
+      const raw = chRestingX + dx;
+      chCurrentX = Math.max(Math.min(raw, 0), -SWIPE_DELETE_PX - 40);
+      setChapterTranslate(chCurrentX, false);
+    });
     head.addEventListener('pointerup', (event) => {
       event.stopPropagation();
-      clearTimeout(chapterLongPressTimer);
+      cancelChapterLongPress();
+      if (chSwiping) {
+        head.releasePointerCapture?.(event.pointerId);
+        if (chCurrentX <= -SWIPE_DELETE_PX) {
+          deleteChapter();
+        } else {
+          chRestingX = chCurrentX <= -SWIPE_REVEAL_PX / 2 ? -SWIPE_REVEAL_PX : 0;
+          setChapterTranslate(chRestingX, true);
+        }
+        chSwiping = false; chDragging = false;
+        return;
+      }
+      chDragging = false;
       if (chapterLongPressTriggered) return;
+      if (chRestingX !== 0) {
+        deleteChapter();
+        return;
+      }
       open = !open;
       state.chapterOpen[key] = open;
       body.hidden = !open;
       head.querySelector('.chapter-caret').classList.toggle('open', open);
       if (open) requestAnimationFrame(chapterAutoResize);
     });
-    head.addEventListener('pointerleave', () => clearTimeout(chapterLongPressTimer));
-    head.addEventListener('pointercancel', () => clearTimeout(chapterLongPressTimer));
+    head.addEventListener('pointerleave', () => cancelChapterLongPress());
+    head.addEventListener('pointercancel', () => {
+      cancelChapterLongPress();
+      chDragging = false; chSwiping = false;
+      setChapterTranslate(chRestingX, true);
+    });
+    chapterSwipeBg.addEventListener('pointerup', () => {
+      if (chRestingX !== 0) deleteChapter();
+    });
     head.addEventListener('click', (event) => event.stopPropagation());
-    row.append(head, body);
+    row.append(chapterSwipeWrap, body);
 
     chapterList.append(row);
   });
