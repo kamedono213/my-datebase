@@ -53,6 +53,7 @@ function normalizeChapters(chapters) {
     id: String(ch?.id ?? `ch-${Math.random().toString(36).slice(2, 10)}`),
     title: String(ch?.title ?? ''),
     content: String(ch?.content ?? ''),
+    attachments: Array.isArray(ch?.attachments) ? ch.attachments.map((a) => ({ ...a })) : [],
   }));
 }
 

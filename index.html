@@ -417,6 +417,11 @@
       width: 28px; height: 28px; border-radius: 999px; background: var(--sw); border: 2px solid transparent; cursor: pointer;
     }
     .tag-creator-swatches .swatch.selected { border-color: var(--text, #1c1c1c); }
+    .tag-creator-swatches .swatch-custom {
+      -webkit-appearance: none; appearance: none; padding: 0; background: conic-gradient(red,yellow,lime,cyan,blue,magenta,red);
+    }
+    .tag-creator-swatches .swatch-custom::-webkit-color-swatch-wrapper { padding: 2px; border-radius: 999px; }
+    .tag-creator-swatches .swatch-custom::-webkit-color-swatch { border: none; border-radius: 999px; }
     .tag-creator-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .tag-creator-actions button {
       border: 0; border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 700;
