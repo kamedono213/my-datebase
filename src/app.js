@@ -1936,6 +1936,10 @@ function getCaretViewportRect(el) {
   return { top, bottom: top + lineHeight, left, right: left + 1 };
 }
 
+// IME変換中は一切スクロール補正をかけない(wireKeyboardAvoidanceのcomposition
+// リスナー参照)。
+let isImeComposing = false;
+
 // ソフトキーボード表示中、キャレットがキーボードや画面端に隠れないように
 // 画面をスクロールする(フォーカス直後・キーボード開閉時・入力のたびに呼ぶ)。
 function keepFocusedFieldVisible() {
@@ -1950,6 +1954,7 @@ function keepFocusedFieldVisible() {
   // 動かせない。キーボードで隠れた分だけ常に余白を作っておくことで、
   // ノートの長さに関係なく入力欄をキーボードの上までスクロールできるようにする。
   ensureKeyboardScrollRoom(vv);
+  if (isImeComposing) return;
   const viewTop = vv ? vv.offsetTop : 0;
   const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   const margin = 16;
@@ -1988,6 +1993,21 @@ function wireKeyboardAvoidance() {
     setTimeout(keepFocusedFieldVisible, 50);
     setTimeout(keepFocusedFieldVisible, 350);
   });
+  // 日本語入力などのIME変換中は、selectionStart/selectionEndが確定前の
+  // 変換中の文字列全体を指していたりと、キャレット位置の計算があてにならない。
+  // さらにブラウザ自身もIMEの変換候補ウィンドウが隠れないよう独自にスクロール
+  // することがあり、そこへこちらの補正スクロールが重なると行き過ぎた位置に
+  // ずれてしまう。変換中は一切スクロールに触らず、変換が確定した直後にだけ、
+  // 確定後の正しいキャレット位置へ1回だけ合わせ直す。
+  document.addEventListener('compositionstart', (event) => {
+    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
+    isImeComposing = true;
+  });
+  document.addEventListener('compositionend', (event) => {
+    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
+    isImeComposing = false;
+    setTimeout(keepFocusedFieldVisible, 0);
+  });
   document.addEventListener('focusout', (event) => {
     if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
     // フォーカスが別の入力欄に移っただけなら、そちらのfocusinがまた余白を
@@ -1998,9 +2018,18 @@ function wireKeyboardAvoidance() {
     }, 50);
   });
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', keepFocusedFieldVisible);
-    window.visualViewport.addEventListener('scroll', keepFocusedFieldVisible);
+    // キーボードの開閉アニメーション中は、visualViewportのresizeイベントが
+    // 短時間に何度も連続で発火する。その都度スクロール補正をかけると、
+    // まだ動いている途中の高さを基準にした補正が積み重なって行き過ぎてしまう
+    // ことがあったため、動きが落ち着いてから1回だけ補正するようにする。
+    window.visualViewport.addEventListener('resize', scheduleKeepFocusedFieldVisible);
+    window.visualViewport.addEventListener('scroll', scheduleKeepFocusedFieldVisible);
   }
+}
+let kbAvoidDebounceTimer = null;
+function scheduleKeepFocusedFieldVisible() {
+  clearTimeout(kbAvoidDebounceTimer);
+  kbAvoidDebounceTimer = setTimeout(keepFocusedFieldVisible, 100);
 }
 function wireEvents() {
   wireKeyboardAvoidance();
@@ -2235,3 +2264,5 @@ init().catch((error) => {
   console.error(error);
   alert('アプリを起動できませんでした。ブラウザを再読み込みしてください。');
 });
+
+window.__DBG = { getCaretViewportRect, keepFocusedFieldVisible };
