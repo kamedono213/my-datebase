@@ -973,7 +973,7 @@ function buildBookInlinePanel(note, inner) {
       for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
         if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} は10MBを超えるため追加できません`); continue; }
-        const dataUrl = await fileToDataUrl(file);
+        const dataUrl = await fileToCompressedDataUrl(file);
         chapter.attachments.push({
           id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name: file.name, type: file.type, dataUrl,
@@ -1524,6 +1524,33 @@ function fileToDataUrl(file) {
   });
 }
 
+// スマホのカメラ写真をそのまま保存すると数MB〜十数MBになり、IndexedDBの
+// 読み書きも一覧の描画(サムネイル)も重くなる。長辺1280pxまで縮小してJPEG圧縮
+// したものを保存する(サムネイル表示にも、長押しでの拡大表示にも十分な解像度)。
+// GIFはcanvas変換するとアニメーションが失われるので圧縮せずそのまま保存する。
+async function fileToCompressedDataUrl(file, maxDim = 1280, quality = 0.82) {
+  const original = await fileToDataUrl(file);
+  if (file.type === 'image/gif') return original;
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = original;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    if (scale >= 1) return original; // 既に十分小さい
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch (err) {
+    return original; // 変換に失敗したら元データのまま保存する
+  }
+}
+
 async function addAttachments(files) {
   const note = currentNote();
   if (!note) return;
@@ -1533,7 +1560,7 @@ async function addAttachments(files) {
       showToast(`${file.name} は10MBを超えるため追加できません`);
       continue;
     }
-    const dataUrl = await fileToDataUrl(file);
+    const dataUrl = await fileToCompressedDataUrl(file);
     note.attachments.push({
       id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: file.name,
