@@ -396,6 +396,12 @@ function renderLibrary() {
     editBtn.setAttribute('aria-label', '編集・削除メニュー');
     editBtn.title = '編集・削除メニュー';
     editBtn.textContent = '✏️';
+    // click だけでなく pointerdown/pointerup も止めないと、行(row)側の
+    // 長押し/タップ展開ロジックにまでバブリングして、renderLibrary()が
+    // このeditBtnごとDOMを作り直してしまい、肝心のclickイベントが
+    // (対象要素が既に外れているため)発火せずメニューが開かないことがあった。
+    editBtn.addEventListener('pointerdown', (event) => event.stopPropagation());
+    editBtn.addEventListener('pointerup', (event) => event.stopPropagation());
     editBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       if (state.selectionMode) return;
@@ -687,6 +693,25 @@ async function applyBulkTags() {
   exitSelectionMode();
 }
 
+// Clipboard APIが使えない古いWebView向けに、一時textarea+execCommandへ
+// フォールバックする。
+async function copyTextToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.append(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
 // タイトルの長押し、またはペンマークのタップで出す「編集/削除」メニュー。
 function openRowMenu(note, anchorEl) {
   document.querySelectorAll('.row-menu').forEach((menu) => menu.remove());
@@ -702,6 +727,16 @@ function openRowMenu(note, anchorEl) {
     openEditor(note.id);
   });
 
+  const copyItem = document.createElement('button');
+  copyItem.type = 'button';
+  copyItem.textContent = '📋 コピー';
+  copyItem.addEventListener('click', async () => {
+    menu.remove();
+    const text = [note.title, note.content].filter(Boolean).join('\n\n');
+    await copyTextToClipboard(text);
+    showToast('コピーしました');
+  });
+
   const deleteItem = document.createElement('button');
   deleteItem.type = 'button';
   deleteItem.className = 'danger';
@@ -715,7 +750,7 @@ function openRowMenu(note, anchorEl) {
     showToast('ゴミ箱へ移動しました');
   });
 
-  menu.append(editItem, deleteItem);
+  menu.append(editItem, copyItem, deleteItem);
   document.body.append(menu);
 
   const rect = anchorEl.getBoundingClientRect();
