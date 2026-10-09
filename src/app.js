@@ -1944,10 +1944,10 @@ let isImeComposing = false;
 // 画面をスクロールする(フォーカス直後・キーボード開閉時・入力のたびに呼ぶ)。
 function keepFocusedFieldVisible() {
   const el = document.activeElement;
-  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) {
-    clearKeyboardScrollRoom();
-    return;
-  }
+  // フォーカスが外れている時にここへ来ても、確保していた余白(paddingBottom)は
+  // あえて消さない。消すとページが急に短くなり、ブラウザがスクロール位置を
+  // 強制的に詰めるため、入力を終えた瞬間に画面が別の場所へ飛んでしまっていた。
+  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
   const vv = window.visualViewport;
   // 中身が短いノート(本を作った直後など、章がまだ1つしかない時など)は、
   // ページ自体にスクロールできる余白が無く、下のwindow.scrollByが何も
@@ -1969,9 +1969,6 @@ function keepFocusedFieldVisible() {
 function ensureKeyboardScrollRoom(vv) {
   const kbHeight = vv ? Math.max(0, window.innerHeight - vv.height) : 0;
   document.body.style.paddingBottom = kbHeight ? `${kbHeight}px` : '';
-}
-function clearKeyboardScrollRoom() {
-  document.body.style.paddingBottom = '';
 }
 
 // 自動で高さが伸びるtextarea。高さを合わせた後、実際のキャレット位置を基準に
@@ -1997,8 +1994,11 @@ function wireKeyboardAvoidance() {
   // 変換中の文字列全体を指していたりと、キャレット位置の計算があてにならない。
   // さらにブラウザ自身もIMEの変換候補ウィンドウが隠れないよう独自にスクロール
   // することがあり、そこへこちらの補正スクロールが重なると行き過ぎた位置に
-  // ずれてしまう。変換中は一切スクロールに触らず、変換が確定した直後にだけ、
-  // 確定後の正しいキャレット位置へ1回だけ合わせ直す。
+  // ずれてしまう。変換中は一切スクロールに触らない。
+  // 変換確定時に明示的な再補正は入れない: compositionendの直後には必ず
+  // 対応するinputイベントが来て、それがgrowAndScroll経由でkeepFocusedFieldVisible
+  // を呼ぶので、そちらに任せる(ここでも別途呼ぶと、2回分の補正が少しだけ
+  // ズレたタイミングで重なり、確定した瞬間に別の位置へ飛んで見えることがあった)。
   document.addEventListener('compositionstart', (event) => {
     if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
     isImeComposing = true;
@@ -2006,17 +2006,11 @@ function wireKeyboardAvoidance() {
   document.addEventListener('compositionend', (event) => {
     if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
     isImeComposing = false;
-    setTimeout(keepFocusedFieldVisible, 0);
   });
-  document.addEventListener('focusout', (event) => {
-    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
-    // フォーカスが別の入力欄に移っただけなら、そちらのfocusinがまた余白を
-    // 作り直すのでそのままでいい。本当に編集が終わった時だけ余白を消す。
-    setTimeout(() => {
-      const active = document.activeElement;
-      if (!active || typeof active.matches !== 'function' || !active.matches('input, textarea')) clearKeyboardScrollRoom();
-    }, 50);
-  });
+  // 入力欄から完全にフォーカスが外れても、キーボード用に確保した余白
+  // (paddingBottom)はあえて消さない。消すとページが急に短くなり、
+  // ブラウザがスクロール位置を強制的に詰めるため、編集し終えた瞬間に
+  // 画面が別の場所へ飛んでしまっていた。多少の余白が残るだけなので実害はない。
   if (window.visualViewport) {
     // キーボードの開閉アニメーション中は、visualViewportのresizeイベントが
     // 短時間に何度も連続で発火する。その都度スクロール補正をかけると、
