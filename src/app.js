@@ -1889,8 +1889,55 @@ async function handleImport(file) {
   }
 }
 
-// ソフトキーボード表示中、フォーカスした直後の要素がキーボードに隠れないように
-// 画面をスクロールする(タップした瞬間・キーボードの開閉時のみ使う簡易版)。
+// input/textarea内の実際のキャレット位置を、ビューポート座標の矩形として返す。
+// 対象要素と見た目(フォント・パディング・折り返し)が一致するミラー要素を裏で
+// 作り、キャレットまでのテキストを流し込んでその高さ/幅を測ることで、長い
+// ノートの途中で入力していても、折り返しを含めた正確な行位置が分かる。
+// (要素全体の bounding rect だけを見ていると、長いtextareaの途中にキャレットが
+// あるケースで全く見当違いの位置にスクロールしてしまうため。)
+function getCaretViewportRect(el) {
+  const isTextarea = el.tagName === 'TEXTAREA';
+  const style = getComputedStyle(el);
+  const mirror = document.createElement('div');
+  const props = [
+    'boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight',
+    'textTransform', 'wordSpacing', 'textIndent',
+  ];
+  for (const p of props) mirror.style[p] = style[p];
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre';
+  mirror.style.wordWrap = 'break-word';
+  mirror.style.overflowWrap = 'break-word';
+  mirror.style.top = '0';
+  mirror.style.left = '-9999px';
+  mirror.style.height = 'auto';
+  document.body.append(mirror);
+
+  const caretPos = el.selectionStart ?? el.value.length;
+  mirror.textContent = el.value.slice(0, caretPos);
+  const marker = document.createElement('span');
+  marker.textContent = '​';
+  mirror.append(marker);
+  mirror.append(document.createTextNode(el.value.slice(caretPos) || '​'));
+
+  const markerTop = marker.offsetTop;
+  const markerLeft = isTextarea ? 0 : marker.offsetLeft; // 縦スクロールだけ扱う(横スクロールは対象外)
+  const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.3;
+  mirror.remove();
+
+  const elRect = el.getBoundingClientRect();
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const paddingLeft = parseFloat(style.paddingLeft) || 0;
+  const top = elRect.top + paddingTop + markerTop - (el.scrollTop || 0);
+  const left = elRect.left + paddingLeft + markerLeft - (el.scrollLeft || 0);
+  return { top, bottom: top + lineHeight, left, right: left + 1 };
+}
+
+// ソフトキーボード表示中、キャレットがキーボードや画面端に隠れないように
+// 画面をスクロールする(フォーカス直後・キーボード開閉時・入力のたびに呼ぶ)。
 function keepFocusedFieldVisible() {
   const el = document.activeElement;
   if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) {
@@ -1906,7 +1953,8 @@ function keepFocusedFieldVisible() {
   const viewTop = vv ? vv.offsetTop : 0;
   const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   const margin = 16;
-  const rect = el.getBoundingClientRect();
+  let rect;
+  try { rect = getCaretViewportRect(el); } catch (err) { rect = el.getBoundingClientRect(); }
   if (rect.bottom > viewBottom - margin) {
     window.scrollBy(0, rect.bottom - (viewBottom - margin));
   } else if (rect.top < viewTop + margin) {
@@ -1921,21 +1969,14 @@ function clearKeyboardScrollRoom() {
   document.body.style.paddingBottom = '';
 }
 
-// 自動で高さが伸びるtextareaで、入力のたびに「今回どれだけ背が伸びたか」を
-// そのまま画面のスクロール量として使う。手動の改行(Enter)はもちろん、文字数が
-// 増えて自動的に次の行へ折り返された場合も、どちらもtextareaの高さがその分
-// 伸びるので同じ仕組みでまとめて対応できる。キャレットの正確な位置を計算する
-// 必要がなく、今見えている行がそのまま同じ相対位置で見え続ける(伸びた分だけ
-// ページを一緒に押し下げるイメージ)。
+// 自動で高さが伸びるtextarea。高さを合わせた後、実際のキャレット位置を基準に
+// 画面をスクロールする(以前は「今回どれだけ背が伸びたか」だけを見ていたが、
+// 長いノートの途中で入力している時はキャレット位置と無関係にずれていたため、
+// keepFocusedFieldVisibleのキャレット基準ロジックに統一した)。
 function growAndScroll(textarea) {
-  const prevHeight = textarea.offsetHeight;
   textarea.style.height = 'auto';
-  const newHeight = textarea.scrollHeight;
-  textarea.style.height = `${newHeight}px`;
-  if (document.activeElement === textarea) {
-    const grown = newHeight - prevHeight;
-    if (grown > 0) window.scrollBy(0, grown);
-  }
+  textarea.style.height = `${textarea.scrollHeight}px`;
+  if (document.activeElement === textarea) keepFocusedFieldVisible();
 }
 
 // アプリ全体のinput/textareaに効くよう、個別の要素ごとではなくfocusin委譲+
