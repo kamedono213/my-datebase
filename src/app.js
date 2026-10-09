@@ -799,6 +799,7 @@ function buildInlinePanel(note) {
         img.src = attachment.dataUrl;
         img.alt = attachment.name || '添付画像';
         img.loading = 'lazy';
+        wireImageLongPressZoom(img);
         images.append(img);
       }
       inner.append(images);
@@ -846,6 +847,7 @@ function buildBookInlinePanel(note, inner) {
       img.src = attachment.dataUrl;
       img.alt = attachment.name || '添付画像';
       img.loading = 'lazy';
+      wireImageLongPressZoom(img);
       images.append(img);
     }
     inner.append(images);
@@ -913,6 +915,7 @@ function buildBookInlinePanel(note, inner) {
         img.src = attachment.dataUrl;
         img.alt = attachment.name || '添付画像';
         img.loading = 'lazy';
+        wireImageLongPressZoom(img);
         chapterImages.append(img);
       }
     }
@@ -1076,6 +1079,41 @@ function updateEditorButtons(note) {
   els.favoriteButton.textContent = note.favorite ? '★' : '☆';
 }
 
+// 画像を長押しすると全画面で拡大表示する(どの一覧の画像でも共通)。
+let imageLightboxEl = null;
+function showImageLightbox(src, alt) {
+  if (!imageLightboxEl) {
+    imageLightboxEl = document.createElement('div');
+    imageLightboxEl.className = 'image-lightbox';
+    imageLightboxEl.hidden = true;
+    const img = document.createElement('img');
+    imageLightboxEl.append(img);
+    imageLightboxEl.addEventListener('click', () => { imageLightboxEl.hidden = true; });
+    document.body.append(imageLightboxEl);
+  }
+  imageLightboxEl.querySelector('img').src = src;
+  imageLightboxEl.querySelector('img').alt = alt || '';
+  imageLightboxEl.hidden = false;
+}
+function wireImageLongPressZoom(img) {
+  let timer = null;
+  const start = (event) => {
+    event.stopPropagation();
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(12);
+      showImageLightbox(img.src, img.alt);
+    }, 500);
+  };
+  const cancel = () => clearTimeout(timer);
+  img.addEventListener('pointerdown', start);
+  img.addEventListener('pointerup', cancel);
+  img.addEventListener('pointerleave', cancel);
+  img.addEventListener('pointercancel', cancel);
+  // 長押しでブラウザ標準の「画像を保存」メニューが割り込まないようにする。
+  img.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
 function renderAttachments(note) {
   els.attachmentList.replaceChildren();
   for (const attachment of note.attachments || []) {
@@ -1085,6 +1123,7 @@ function renderAttachments(note) {
     img.src = attachment.dataUrl;
     img.alt = attachment.name || '添付画像';
     img.loading = 'lazy';
+    wireImageLongPressZoom(img);
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'attachment-remove';
