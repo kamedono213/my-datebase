@@ -9,3 +9,4 @@ android/local.properties
 android/captures/
 *.apk
 .DS_Store
+.jdk21/
