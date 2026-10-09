@@ -140,6 +140,26 @@ async function upsertTagInRegistry(name, color, noteType = state.activeType) {
   return registry;
 }
 
+// タグを登録解除し、そのタグが付いていた同じタブのメモからも取り除く
+// (宙ぶらりんな未登録タグとして残らないように)。
+async function deleteTagFromRegistry(name, noteType) {
+  const type = normalizeNoteType(noteType);
+  const key = name.toLocaleLowerCase();
+  const registry = (state.tagRegistries[type] || []).filter((t) => t.name.toLocaleLowerCase() !== key);
+  await setSetting(tagRegistrySettingKey(type), registry);
+  state.tagRegistries[type] = registry;
+  for (const note of state.notes) {
+    if (normalizeNoteType(note.noteType) !== type) continue;
+    if (!note.tags?.some((t) => t.toLocaleLowerCase() === key)) continue;
+    note.tags = note.tags.filter((t) => t.toLocaleLowerCase() !== key);
+    note.updatedAt = Date.now();
+    await putNote(note);
+  }
+  for (const tag of [...state.editingTags]) {
+    if (tag.toLocaleLowerCase() === key) state.editingTags.delete(tag);
+  }
+}
+
 // 登録済みタグは指定した色、それ以外(バックアップ由来などの未登録タグ)は
 // 従来通りの自動配色にフォールバックする。
 function resolveTagColorMap(tagOrder, noteType = state.activeType) {
@@ -879,6 +899,54 @@ function buildBookInlinePanel(note, inner) {
     });
     ta.addEventListener('click', (event) => event.stopPropagation());
     body.append(ta);
+
+    // 画像: 大項目(章)ごとに追加できる。本文欄と同じbody(開閉で出し入れされる
+    // 領域)の中に置くので、章を開いた時だけ画像も一緒に見える。
+    if (!Array.isArray(chapter.attachments)) chapter.attachments = [];
+    const chapterImages = document.createElement('div');
+    chapterImages.className = 'note-inline-images';
+    chapterImages.addEventListener('click', (event) => event.stopPropagation());
+    function renderChapterImages() {
+      chapterImages.replaceChildren();
+      for (const attachment of chapter.attachments) {
+        const img = document.createElement('img');
+        img.src = attachment.dataUrl;
+        img.alt = attachment.name || '添付画像';
+        img.loading = 'lazy';
+        chapterImages.append(img);
+      }
+    }
+    renderChapterImages();
+    body.append(chapterImages);
+
+    const addImageLabel = document.createElement('label');
+    addImageLabel.className = 'small-btn file-btn chapter-add-image-btn';
+    addImageLabel.textContent = '＋ 画像を追加';
+    addImageLabel.addEventListener('click', (event) => event.stopPropagation());
+    const chapterImageInput = document.createElement('input');
+    chapterImageInput.type = 'file';
+    chapterImageInput.accept = 'image/*';
+    chapterImageInput.multiple = true;
+    chapterImageInput.hidden = true;
+    chapterImageInput.addEventListener('click', (event) => event.stopPropagation());
+    chapterImageInput.addEventListener('change', async () => {
+      const files = [...chapterImageInput.files];
+      chapterImageInput.value = '';
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} は10MBを超えるため追加できません`); continue; }
+        const dataUrl = await fileToDataUrl(file);
+        chapter.attachments.push({
+          id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name, type: file.type, dataUrl,
+        });
+      }
+      renderChapterImages();
+      scheduleInlineSave(note);
+    });
+    addImageLabel.append(chapterImageInput);
+    body.append(addImageLabel);
+
     // 開いた状態で作られた章(初期表示)は見えているのですぐ高さを合わせられるが、
     // 閉じた状態(hidden)で作られた章はscrollHeightが測れないため、開いた瞬間
     // (下のpointerupハンドラ)にも改めて高さを合わせ直す必要がある。
@@ -1153,7 +1221,25 @@ function renderTagsPicker() {
     chip.className = `tag-chip${active ? ' active' : ''}`;
     chip.style.setProperty('--tag-color', colorMap[name]);
     chip.append(tagChipCheck(), document.createTextNode(name));
+    // 長押しでタグそのものを削除(登録解除+全メモから除去)できるようにする。
+    // 短いタップは今まで通り選択/解除。
+    let longPressTimer = null, longPressTriggered = false;
+    chip.addEventListener('pointerdown', () => {
+      longPressTriggered = false;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(async () => {
+        longPressTriggered = true;
+        if (navigator.vibrate) navigator.vibrate(12);
+        if (confirm(`「${name}」タグを削除しますか？(全てのメモから外れます)`)) {
+          await deleteTagFromRegistry(name, editingType);
+          renderTagsPicker();
+        }
+      }, 500);
+    });
+    chip.addEventListener('pointerup', () => clearTimeout(longPressTimer));
+    chip.addEventListener('pointerleave', () => clearTimeout(longPressTimer));
     chip.addEventListener('click', () => {
+      if (longPressTriggered) { longPressTriggered = false; return; }
       if (active) {
         for (const tag of [...state.editingTags]) {
           if (tag.toLocaleLowerCase() === name.toLocaleLowerCase()) state.editingTags.delete(tag);
@@ -1190,6 +1276,11 @@ function openTagCreator() {
   const swatchRow = document.createElement('div');
   swatchRow.className = 'tag-creator-swatches';
   let chosenColor = TAG_COLOR_SWATCHES[Math.floor(Math.random() * TAG_COLOR_SWATCHES.length)];
+  function selectSwatch(selected) {
+    swatchButtons.forEach((b) => b.classList.remove('selected'));
+    customPicker.classList.remove('selected');
+    selected.classList.add('selected');
+  }
   const swatchButtons = TAG_COLOR_SWATCHES.map((color) => {
     const sw = document.createElement('button');
     sw.type = 'button';
@@ -1197,12 +1288,23 @@ function openTagCreator() {
     sw.style.setProperty('--sw', color);
     sw.addEventListener('click', () => {
       chosenColor = color;
-      swatchButtons.forEach((b) => b.classList.remove('selected'));
-      sw.classList.add('selected');
+      selectSwatch(sw);
     });
     swatchRow.append(sw);
     return sw;
   });
+  // プリセットのスウォッチだけでなく、好きな色を自由に選べるようにネイティブの
+  // カラーピッカーも1つ置く(選ぶとその色が選択状態になる)。
+  const customPicker = document.createElement('input');
+  customPicker.type = 'color';
+  customPicker.className = 'swatch swatch-custom';
+  customPicker.value = chosenColor;
+  customPicker.title = '好きな色を選ぶ';
+  customPicker.addEventListener('input', () => {
+    chosenColor = customPicker.value;
+    selectSwatch(customPicker);
+  });
+  swatchRow.append(customPicker);
 
   const actions = document.createElement('div');
   actions.className = 'tag-creator-actions';
@@ -1690,8 +1792,16 @@ async function handleImport(file) {
 // 画面をスクロールする(タップした瞬間・キーボードの開閉時のみ使う簡易版)。
 function keepFocusedFieldVisible() {
   const el = document.activeElement;
-  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
+  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) {
+    clearKeyboardScrollRoom();
+    return;
+  }
   const vv = window.visualViewport;
+  // 中身が短いノート(本を作った直後など、章がまだ1つしかない時など)は、
+  // ページ自体にスクロールできる余白が無く、下のwindow.scrollByが何も
+  // 動かせない。キーボードで隠れた分だけ常に余白を作っておくことで、
+  // ノートの長さに関係なく入力欄をキーボードの上までスクロールできるようにする。
+  ensureKeyboardScrollRoom(vv);
   const viewTop = vv ? vv.offsetTop : 0;
   const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   const margin = 16;
@@ -1701,6 +1811,13 @@ function keepFocusedFieldVisible() {
   } else if (rect.top < viewTop + margin) {
     window.scrollBy(0, rect.top - (viewTop + margin));
   }
+}
+function ensureKeyboardScrollRoom(vv) {
+  const kbHeight = vv ? Math.max(0, window.innerHeight - vv.height) : 0;
+  document.body.style.paddingBottom = kbHeight ? `${kbHeight}px` : '';
+}
+function clearKeyboardScrollRoom() {
+  document.body.style.paddingBottom = '';
 }
 
 // 自動で高さが伸びるtextareaで、入力のたびに「今回どれだけ背が伸びたか」を
@@ -1728,6 +1845,15 @@ function wireKeyboardAvoidance() {
     if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
     setTimeout(keepFocusedFieldVisible, 50);
     setTimeout(keepFocusedFieldVisible, 350);
+  });
+  document.addEventListener('focusout', (event) => {
+    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
+    // フォーカスが別の入力欄に移っただけなら、そちらのfocusinがまた余白を
+    // 作り直すのでそのままでいい。本当に編集が終わった時だけ余白を消す。
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || typeof active.matches !== 'function' || !active.matches('input, textarea')) clearKeyboardScrollRoom();
+    }, 50);
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', keepFocusedFieldVisible);

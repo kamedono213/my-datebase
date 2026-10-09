@@ -258,6 +258,7 @@ button { cursor: pointer; }
 .chapter-row-head .chapter-caret { color: var(--muted); font-size: .72rem; transition: transform .15s; flex: 0 0 auto; }
 .chapter-row-head .chapter-caret.open { transform: rotate(90deg); }
 .chapter-row-body { padding: 0 12px 12px; background: var(--surface-2); border-radius: 0 0 10px 10px; }
+.chapter-add-image-btn { margin-top: 8px; display: inline-flex; }
 .add-chapter-btn {
   margin-top: 2px; width: 100%; padding: 10px; border: 1px dashed var(--line); border-radius: 10px;
   background: transparent; color: var(--muted); font-size: .84rem; font-weight: 720;
