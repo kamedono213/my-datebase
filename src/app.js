@@ -1959,7 +1959,7 @@ function getCaretViewportRect(el) {
   mirror.style.height = 'auto';
   document.body.append(mirror);
 
-  const caretPos = el.selectionStart ?? el.value.length;
+  const caretPos = el.selectionEnd ?? el.value.length;
   mirror.textContent = el.value.slice(0, caretPos);
   const marker = document.createElement('span');
   marker.textContent = '​';
@@ -1979,94 +1979,82 @@ function getCaretViewportRect(el) {
   return { top, bottom: top + lineHeight, left, right: left + 1 };
 }
 
-// IME変換中は一切スクロール補正をかけない(wireKeyboardAvoidanceのcomposition
-// リスナー参照)。
-let isImeComposing = false;
+// 入力中のスクロールのルール(社長指定、2026-10-10):
+//  1. 入力中は、キャレットのある行と画面下(下のタブバー/キーボード)の間を
+//     常に一定の距離あける(TYPING_GAP_RATIO)。
+//  2. 改行などでキャレットの行が下がったら、下がった分だけスクロールする。
+//  3. それ以外(フォーカスした瞬間・キーボードの開閉・文字の削除・タップでの
+//     キャレット移動など)では、アプリ側から勝手にスクロールしない。
+// 以前はフォーカス時・キーボード開閉時・visualViewportの変化のたびにも補正を
+// かけていたが、それらが重なってあちこちに飛ぶ原因になっていたので、
+// スクロールしてよいきっかけを「文字の入力(inputイベント)」だけに絞った。
+//
+// あける距離は、上の固定ヘッダーの下端から下のタブバー上端までの「見えている
+// 範囲」に対する割合。社長のスクリーンショット(2026-10-10)で、キャレット行の
+// 下端から下のタブバーまでがこの範囲の約55%だったので、それに合わせている。
+// 距離を変えたいときはこの数字だけ変えればよい(大きいほどキャレットが上に来る)。
+const TYPING_GAP_RATIO = 0.55;
 
-// ソフトキーボード表示中、キャレットがキーボードや画面端に隠れないように
-// 画面をスクロールする(フォーカス直後・キーボード開閉時・入力のたびに呼ぶ)。
-function keepFocusedFieldVisible() {
-  const el = document.activeElement;
-  // フォーカスが外れている時にここへ来ても、確保していた余白(paddingBottom)は
-  // あえて消さない。消すとページが急に短くなり、ブラウザがスクロール位置を
-  // 強制的に詰めるため、入力を終えた瞬間に画面が別の場所へ飛んでしまっていた。
-  if (!el || typeof el.matches !== 'function' || !el.matches('input, textarea')) return;
+function getVisibleEditingArea() {
   const vv = window.visualViewport;
-  // 中身が短いノート(本を作った直後など、章がまだ1つしかない時など)は、
-  // ページ自体にスクロールできる余白が無く、下のwindow.scrollByが何も
-  // 動かせない。キーボードで隠れた分だけ常に余白を作っておくことで、
-  // ノートの長さに関係なく入力欄をキーボードの上までスクロールできるようにする。
-  ensureKeyboardScrollRoom(vv);
-  if (isImeComposing) return;
-  const viewTop = vv ? vv.offsetTop : 0;
-  const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-  const margin = 16;
-  let rect;
-  try { rect = getCaretViewportRect(el); } catch (err) { rect = el.getBoundingClientRect(); }
-  if (rect.bottom > viewBottom - margin) {
-    window.scrollBy(0, rect.bottom - (viewBottom - margin));
-  } else if (rect.top < viewTop + margin) {
-    window.scrollBy(0, rect.top - (viewTop + margin));
+  let top = vv ? vv.offsetTop : 0;
+  let bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  for (const header of document.querySelectorAll('.topbar, .editor-header, .sub-header')) {
+    if (!header.getClientRects().length) continue; // 非表示のビュー
+    const r = header.getBoundingClientRect();
+    if (r.bottom > top && r.top <= top + 1) top = r.bottom;
   }
-}
-function ensureKeyboardScrollRoom(vv) {
-  const kbHeight = vv ? Math.max(0, window.innerHeight - vv.height) : 0;
-  document.body.style.paddingBottom = kbHeight ? `${kbHeight}px` : '';
+  const tabbar = document.getElementById('bottomTabbar');
+  // position:fixedの要素はoffsetParentが常にnullなので、表示判定はgetClientRectsで行う
+  if (tabbar && tabbar.getClientRects().length) {
+    const r = tabbar.getBoundingClientRect();
+    if (r.top < bottom && r.bottom >= bottom - 1) bottom = r.top;
+  }
+  return { top, bottom };
 }
 
-// 自動で高さが伸びるtextarea。高さを合わせた後、実際のキャレット位置を基準に
-// 画面をスクロールする(以前は「今回どれだけ背が伸びたか」だけを見ていたが、
-// 長いノートの途中で入力している時はキャレット位置と無関係にずれていたため、
-// keepFocusedFieldVisibleのキャレット基準ロジックに統一した)。
+// ページが短いとscrollByしても動けないので、下に余白を確保しておく。
+// 一度付けた余白は外さない(外すとページが急に縮み、ブラウザがスクロール位置を
+// 詰めてしまって、入力を終えた瞬間に画面が飛ぶため)。
+function ensureTypingScrollRoom() {
+  const need = Math.ceil(window.innerHeight * TYPING_GAP_RATIO);
+  const current = parseFloat(document.body.style.paddingBottom) || 0;
+  if (current < need) document.body.style.paddingBottom = `${need}px`;
+}
+
+// 入力のたびに呼ぶ。キャレット行が「あけたい距離」の線より下にある時だけ、
+// その差の分だけ下へスクロールする(改行1回ならちょうど1行分)。線より上に
+// ある時は何もしない。
+function keepCaretGapWhileTyping(el) {
+  if (!el || document.activeElement !== el) return;
+  ensureTypingScrollRoom();
+  const area = getVisibleEditingArea();
+  if (area.bottom - area.top < 40) return; // 画面が極端に狭い時は触らない
+  const anchor = area.bottom - (area.bottom - area.top) * TYPING_GAP_RATIO;
+  let caret;
+  try { caret = getCaretViewportRect(el); } catch (err) { return; }
+  const overshoot = caret.bottom - anchor;
+  if (overshoot > 1) window.scrollBy(0, Math.round(overshoot));
+}
+
+// 自動で高さが伸びるtextarea。高さを測り直す瞬間に一度height:autoで縮むため、
+// ページの高さが一瞬短くなってブラウザがスクロール位置を詰めてしまうことが
+// ある(=勝手に飛ぶ)。測る前のスクロール位置を覚えておき、ずれていたら戻す。
 function growAndScroll(textarea) {
+  const y = window.scrollY;
   textarea.style.height = 'auto';
   textarea.style.height = `${textarea.scrollHeight}px`;
-  if (document.activeElement === textarea) keepFocusedFieldVisible();
+  if (window.scrollY !== y) window.scrollTo(0, y);
 }
 
-// アプリ全体のinput/textareaに効くよう、個別の要素ごとではなくfocusin委譲+
-// visualViewportの変化で一括対応する。キーボードが開くアニメーションの途中・
-// 完了後の両方で正しい位置に合わせるため、少し間を空けて2回呼ぶ。
+// アプリ全体のinput/textareaに、入力イベントの委譲で一括対応する。
+// (各textareaのinputハンドラでgrowAndScrollが高さを合わせた後に、ここが走る)
 function wireKeyboardAvoidance() {
-  document.addEventListener('focusin', (event) => {
-    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
-    setTimeout(keepFocusedFieldVisible, 50);
-    setTimeout(keepFocusedFieldVisible, 350);
+  document.addEventListener('input', (event) => {
+    const el = event.target;
+    if (typeof el.matches !== 'function' || !el.matches('textarea, input[type="text"], input:not([type])')) return;
+    keepCaretGapWhileTyping(el);
   });
-  // 日本語入力などのIME変換中は、selectionStart/selectionEndが確定前の
-  // 変換中の文字列全体を指していたりと、キャレット位置の計算があてにならない。
-  // さらにブラウザ自身もIMEの変換候補ウィンドウが隠れないよう独自にスクロール
-  // することがあり、そこへこちらの補正スクロールが重なると行き過ぎた位置に
-  // ずれてしまう。変換中は一切スクロールに触らない。
-  // 変換確定時に明示的な再補正は入れない: compositionendの直後には必ず
-  // 対応するinputイベントが来て、それがgrowAndScroll経由でkeepFocusedFieldVisible
-  // を呼ぶので、そちらに任せる(ここでも別途呼ぶと、2回分の補正が少しだけ
-  // ズレたタイミングで重なり、確定した瞬間に別の位置へ飛んで見えることがあった)。
-  document.addEventListener('compositionstart', (event) => {
-    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
-    isImeComposing = true;
-  });
-  document.addEventListener('compositionend', (event) => {
-    if (typeof event.target.matches !== 'function' || !event.target.matches('input, textarea')) return;
-    isImeComposing = false;
-  });
-  // 入力欄から完全にフォーカスが外れても、キーボード用に確保した余白
-  // (paddingBottom)はあえて消さない。消すとページが急に短くなり、
-  // ブラウザがスクロール位置を強制的に詰めるため、編集し終えた瞬間に
-  // 画面が別の場所へ飛んでしまっていた。多少の余白が残るだけなので実害はない。
-  if (window.visualViewport) {
-    // キーボードの開閉アニメーション中は、visualViewportのresizeイベントが
-    // 短時間に何度も連続で発火する。その都度スクロール補正をかけると、
-    // まだ動いている途中の高さを基準にした補正が積み重なって行き過ぎてしまう
-    // ことがあったため、動きが落ち着いてから1回だけ補正するようにする。
-    window.visualViewport.addEventListener('resize', scheduleKeepFocusedFieldVisible);
-    window.visualViewport.addEventListener('scroll', scheduleKeepFocusedFieldVisible);
-  }
-}
-let kbAvoidDebounceTimer = null;
-function scheduleKeepFocusedFieldVisible() {
-  clearTimeout(kbAvoidDebounceTimer);
-  kbAvoidDebounceTimer = setTimeout(keepFocusedFieldVisible, 100);
 }
 function wireEvents() {
   wireKeyboardAvoidance();
@@ -2303,4 +2291,4 @@ init().catch((error) => {
   alert('アプリを起動できませんでした。ブラウザを再読み込みしてください。');
 });
 
-window.__DBG = { getCaretViewportRect, keepFocusedFieldVisible };
+window.__DBG = { getCaretViewportRect, keepCaretGapWhileTyping };
