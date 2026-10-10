@@ -295,6 +295,14 @@ button { cursor: pointer; }
 .tags-input { color: var(--accent); padding: 7px 0 14px; border-bottom: 1px solid var(--line); }
 .small-btn { border: 1px solid var(--line); border-radius: 9px; background: var(--bg); padding: 7px 9px; font-size: .78rem; }
 .content-input { min-height: 46dvh; resize: none; padding: 16px 0; font-size: 1rem; line-height: 1.75; }
+
+.textarea-toolbar { display: flex; justify-content: flex-start; margin-top: 8px; }
+.paste-btn {
+  width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--line, #ccc);
+  background: var(--surface-2, #f0eee6); font-size: 1rem; display: flex; align-items: center;
+  justify-content: center; cursor: pointer; padding: 0; flex: 0 0 auto;
+}
+.paste-btn:active { transform: scale(.94); }
 .editor-section { border-top: 1px solid var(--line); padding: 18px 0; }
 .editor-section h2 { margin: 0 0 10px; font-size: .92rem; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
