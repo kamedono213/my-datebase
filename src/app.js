@@ -60,6 +60,7 @@ const els = {
   titleInput: $('titleInput'),
   tagsPicker: $('tagsPicker'),
   contentInput: $('contentInput'),
+  pasteContentBtn: $('pasteContentBtn'),
   deleteButton: $('deleteButton'),
   attachmentInput: $('attachmentInput'),
   attachmentList: $('attachmentList'),
@@ -712,6 +713,42 @@ async function copyTextToClipboard(text) {
   }
 }
 
+// クリップボードの内容を、textareaのカーソル位置に挿入する(選択範囲があれば置き換え)。
+async function pasteIntoTextarea(textarea) {
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch (err) {
+    showToast('クリップボードを読み取れませんでした(ブラウザの権限設定を確認してください)');
+    return;
+  }
+  if (!text) { showToast('クリップボードが空です'); return; }
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? textarea.value.length;
+  textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+  const pos = start + text.length;
+  textarea.focus();
+  textarea.setSelectionRange(pos, pos);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// textareaの直前に置く、クリップボードから貼り付けるための小さいボタン。
+function createPasteToolbar(textarea) {
+  const toolbar = document.createElement('div');
+  toolbar.className = 'textarea-toolbar';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'paste-btn';
+  btn.title = 'クリップボードから貼り付け';
+  btn.textContent = '📋';
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    pasteIntoTextarea(textarea);
+  });
+  toolbar.append(btn);
+  return toolbar;
+}
+
 // タイトルの長押し、またはペンマークのタップで出す「編集/削除」メニュー。
 function openRowMenu(note, anchorEl) {
   document.querySelectorAll('.row-menu').forEach((menu) => menu.remove());
@@ -822,7 +859,9 @@ function buildInlinePanel(note) {
       autoResize();
     });
     textarea.addEventListener('click', (event) => event.stopPropagation());
-    inner.append(textarea);
+    const pasteToolbar = createPasteToolbar(textarea);
+    pasteToolbar.addEventListener('click', (event) => event.stopPropagation());
+    inner.append(pasteToolbar, textarea);
     requestAnimationFrame(autoResize);
 
     if (note.attachments && note.attachments.length) {
@@ -870,7 +909,9 @@ function buildBookInlinePanel(note, inner) {
     autoResize();
   });
   overview.addEventListener('click', (event) => event.stopPropagation());
-  inner.append(overview);
+  const overviewPasteToolbar = createPasteToolbar(overview);
+  overviewPasteToolbar.addEventListener('click', (event) => event.stopPropagation());
+  inner.append(overviewPasteToolbar, overview);
   requestAnimationFrame(autoResize);
 
   if (note.attachments && note.attachments.length) {
@@ -935,7 +976,9 @@ function buildBookInlinePanel(note, inner) {
       chapterAutoResize();
     });
     ta.addEventListener('click', (event) => event.stopPropagation());
-    body.append(ta);
+    const chapterPasteToolbar = createPasteToolbar(ta);
+    chapterPasteToolbar.addEventListener('click', (event) => event.stopPropagation());
+    body.append(chapterPasteToolbar, ta);
 
     // 画像: 大項目(章)ごとに追加できる。本文欄と同じbody(開閉で出し入れされる
     // 領域)の中に置くので、章を開いた時だけ画像も一緒に見える。
@@ -2076,6 +2119,7 @@ function wireEvents() {
   for (const input of [els.titleInput, els.contentInput]) input.addEventListener('input', scheduleAutosave);
   els.contentInput.addEventListener('input', () => growAndScroll(els.contentInput));
 
+  els.pasteContentBtn.addEventListener('click', () => pasteIntoTextarea(els.contentInput));
   els.favoriteButton.addEventListener('click', () => toggleFlag('favorite'));
   els.pinButton.addEventListener('click', () => toggleFlag('pinned'));
   els.deleteButton.addEventListener('click', moveActiveToTrash);
