@@ -713,13 +713,27 @@ async function copyTextToClipboard(text) {
   }
 }
 
+// ネイティブアプリ内(Capacitor WebView)ではnavigator.clipboard.readText()の権限まわりが
+// 不安定で、押しても反応しないことがあった。ネイティブ実行時は@capacitor/clipboardの
+// ネイティブプラグイン経由で読む(Android側の実装なので権限ダイアログに左右されない)。
+// PWA/ブラウザではWeb Clipboard APIにフォールバックする。
+async function readClipboardText() {
+  const isNative = Boolean(window.Capacitor?.isNativePlatform?.());
+  const NativeClipboard = window.Capacitor?.Plugins?.Clipboard;
+  if (isNative && NativeClipboard) {
+    const result = await NativeClipboard.read();
+    return result?.value || '';
+  }
+  return await navigator.clipboard.readText();
+}
+
 // クリップボードの内容を、textareaのカーソル位置に挿入する(選択範囲があれば置き換え)。
 async function pasteIntoTextarea(textarea) {
   let text;
   try {
-    text = await navigator.clipboard.readText();
+    text = await readClipboardText();
   } catch (err) {
-    showToast('クリップボードを読み取れませんでした(ブラウザの権限設定を確認してください)');
+    showToast('クリップボードを読み取れませんでした');
     return;
   }
   if (!text) { showToast('クリップボードが空です'); return; }
