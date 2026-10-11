@@ -344,7 +344,7 @@ button { cursor: pointer; }
 #signInButton, #signOutButton { width: 100%; }
 .privacy-note { margin-top: 22px; padding: 12px; border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: .78rem; }
 
-.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + 60px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); white-space: nowrap; }
+.toast { position: fixed; z-index: 50; left: 50%; bottom: calc(94px + 60px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); border-radius: 18px; padding: 9px 14px; font-size: .82rem; box-shadow: var(--shadow); max-width: min(85vw, 420px); width: max-content; white-space: normal; text-align: center; box-sizing: border-box; }
 
 @media (min-width: 760px) {
   .app-shell { padding: 0 20px; }
